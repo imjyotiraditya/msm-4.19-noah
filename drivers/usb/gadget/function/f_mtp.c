@@ -1852,7 +1852,12 @@ static struct usb_function_instance *mtp_alloc_inst(void)
 static int mtp_ctrlreq_configfs(struct usb_function *f,
 				const struct usb_ctrlrequest *ctrl)
 {
-	return mtp_ctrlrequest(f->config->cdev, ctrl);
+	if (f->config->cdev) {
+		return mtp_ctrlrequest(f->config->cdev, ctrl);
+	} else {
+		pr_err("ERROR:NULL pointer!\n");
+		return 0;
+	}
 }
 
 static void mtp_free(struct usb_function *f)

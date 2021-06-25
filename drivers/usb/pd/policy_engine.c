@@ -1939,9 +1939,15 @@ static void vconn_swap(struct usbpd *pd)
 
 		pd->vconn_enabled = true;
 
+#ifndef VENDOR_EDIT
+/* tongfeng.Huang@BSP.CHG.Basic, 2020/02/13,  add for  pd+vooc adapter compatibility */
+		//pd_phy_update_frame_filter(FRAME_FILTER_EN_SOP |
+		//			   FRAME_FILTER_EN_SOPI |
+		//			   FRAME_FILTER_EN_HARD_RESET);
+#else
 		pd_phy_update_frame_filter(FRAME_FILTER_EN_SOP |
-					   FRAME_FILTER_EN_SOPI |
 					   FRAME_FILTER_EN_HARD_RESET);
+#endif
 
 		/*
 		 * Small delay to ensure Vconn has ramped up. This is well
@@ -2109,8 +2115,11 @@ static int usbpd_startup_common(struct usbpd *pd,
 		phy_params->data_role = pd->current_dr;
 		phy_params->power_role = pd->current_pr;
 
-		if (pd->vconn_enabled)
-			phy_params->frame_filter_val |= FRAME_FILTER_EN_SOPI;
+#ifndef VENDOR_EDIT
+/* tongfeng.Huang@BSP.CHG.Basic, 2020/02/13,  add for pd+vooc adapter compatibility */
+		//if (pd->vconn_enabled)
+		//	phy_params->frame_filter_val |= FRAME_FILTER_EN_SOPI;
+#endif
 
 		ret = pd_phy_open(phy_params);
 		if (ret) {

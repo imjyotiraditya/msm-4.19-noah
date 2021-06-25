@@ -1821,7 +1821,12 @@ static struct ffs_data *ffs_data_new(const char *dev_name)
 	if (ffs_dev && ffs_dev->mounted) {
 		pr_info("%s(): %s Already mounted\n", __func__, dev_name);
 		kfree(ffs);
+	    #ifdef ODM_HQ_EDIT
+            /*Dinalong.Li@ODM_HQ.SYSTEM 2020/05/15 Should return NULL*/
+		return NULL;
+	    #else
 		return ERR_PTR(-EBUSY);
+	    #endif
 	}
 
 	ENTER();
