@@ -67,3 +67,9 @@ extra-y					+= $(head-y) vmlinux.lds
 ifeq ($(CONFIG_DEBUG_EFI),y)
 AFLAGS_head.o += -DVMLINUX_PATH="\"$(realpath $(objtree)/vmlinux)\""
 endif
+
+# ifdef VENDOR_EDIT
+# Bin.Xu@BSP.Kernel.Stability, 2020/4/5, add checklist: minidump & full dump
+obj-y 					+= get_regs.o
+# endif
+
