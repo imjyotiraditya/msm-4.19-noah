@@ -390,6 +390,22 @@ bool geni_wait_for_cmd_done(struct uart_port *uport, bool is_irq_masked)
 	return timeout ? 0 : 1;
 }
 
+#ifdef VENDOR_EDIT
+//Jiaochao.Shi@BSP.CHG.Basic 2018/05/01 add for console
+static struct pinctrl *serial_pinctrl = NULL;
+static struct pinctrl_state *serial_pinctrl_state_disable = NULL;
+#endif
+#ifdef VENDOR_EDIT
+/*xing.xiong@BSP.Kernel.Driver, 2019/06/14, Add for uart control via cmdline*/
+extern bool oem_disable_uart(void);
+bool boot_with_console(void)
+{
+	return !oem_disable_uart();
+}
+
+EXPORT_SYMBOL(boot_with_console);
+#endif
+
 static void msm_geni_serial_config_port(struct uart_port *uport, int cfg_flags)
 {
 	if (cfg_flags & UART_CONFIG_TYPE)
@@ -903,6 +919,13 @@ __msm_geni_serial_console_write(struct uart_port *uport, const char *s,
 	int bytes_to_send = count;
 	int fifo_depth = DEF_FIFO_DEPTH_WORDS;
 	int tx_wm = DEF_TX_WM;
+
+#ifdef VENDOR_EDIT
+/*xing.xiong@BSP.Kernel.Driver, 2019/06/14, Add for uart control via cmdline*/
+	if (!boot_with_console()) {
+		return;
+	}
+#endif
 
 	for (i = 0; i < count; i++) {
 		if (s[i] == '\n')
@@ -2768,14 +2791,8 @@ msm_geni_serial_earlycon_setup(struct earlycon_device *dev,
 							SE_UART_TX_TRANS_CFG);
 	geni_write_reg_nolog(tx_parity_cfg, uport->membase,
 							SE_UART_TX_PARITY_CFG);
-	geni_write_reg_nolog(rx_trans_cfg, uport->membase,
-							SE_UART_RX_TRANS_CFG);
-	geni_write_reg_nolog(rx_parity_cfg, uport->membase,
-							SE_UART_RX_PARITY_CFG);
 	geni_write_reg_nolog(bits_per_char, uport->membase,
 							SE_UART_TX_WORD_LEN);
-	geni_write_reg_nolog(bits_per_char, uport->membase,
-							SE_UART_RX_WORD_LEN);
 	geni_write_reg_nolog(stop_bit, uport->membase, SE_UART_TX_STOP_BIT_LEN);
 	geni_write_reg_nolog(s_clk_cfg, uport->membase, GENI_SER_M_CLK_CFG);
 	geni_write_reg_nolog(s_clk_cfg, uport->membase, GENI_SER_S_CLK_CFG);
@@ -2997,6 +3014,32 @@ exit_ver_info:
 	return ret;
 }
 
+#ifdef VENDOR_EDIT
+/*xing.xiong@BSP.Kernel.Driver, 2019/06/14, Add for uart control via cmdline*/
+static bool oppo_charge_id_reconfig(struct platform_device *pdev, struct uart_driver *drv)
+{
+	//TODO: add charger id control here
+	//Jiaochao.Shi@BSP.CHG.Basic 2018/05/01 add for console
+	if (drv == &msm_geni_console_driver) {
+		pr_err("%s: console start get pinctrl\n", __FUNCTION__);
+		serial_pinctrl = devm_pinctrl_get(&pdev->dev);
+		if (IS_ERR_OR_NULL(serial_pinctrl)) {
+			dev_err(&pdev->dev, "No serial_pinctrl config specified!\n");
+		} else {
+			serial_pinctrl_state_disable =
+			pinctrl_lookup_state(serial_pinctrl, PINCTRL_SLEEP);
+			if (IS_ERR_OR_NULL(serial_pinctrl_state_disable)) {
+				dev_err(&pdev->dev, "No serial_pinctrl_state_disable config specified!\n");
+			} else {
+				pinctrl_select_state(serial_pinctrl, serial_pinctrl_state_disable);
+			}
+		}
+		return true;
+	}
+	return false;
+}
+#endif
+
 static int msm_geni_serial_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -3020,6 +3063,13 @@ static int msm_geni_serial_probe(struct platform_device *pdev)
 								__func__);
 		return -ENODEV;
 	}
+
+#ifdef VENDOR_EDIT
+//Weizhong.Wu@BSP.POWER.Basic 2019/10/13 add for close console in user version
+	if (!boot_with_console() && oppo_charge_id_reconfig(pdev, drv)) { 
+		return -ENODEV; 
+	}
+#endif
 
 	if (pdev->dev.of_node) {
 		if (drv->cons) {
@@ -3457,6 +3507,13 @@ static int __init msm_geni_serial_init(void)
 		msm_geni_console_port.uport.flags = UPF_BOOT_AUTOCONF;
 		msm_geni_console_port.uport.line = i;
 	}
+
+#ifdef VENDOR_EDIT
+/*xing.xiong@BSP.Kernel.Driver, 2019/06/14, Add for uart control via cmdline*/
+	if (!boot_with_console()) {
+		msm_geni_console_driver.cons = NULL;
+	}
+#endif
 
 	ret = console_register(&msm_geni_console_driver);
 	if (ret)

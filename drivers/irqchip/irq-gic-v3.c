@@ -42,7 +42,74 @@
 
 #include <linux/syscore_ops.h>
 
+#ifdef VENDOR_EDIT
+//Nanwei.Deng@BSP.Power.Basic 2018/06/14 add formodem irq, ,case03529649
+#include <linux/wakeup_reason.h>
+#endif
+
 #include "irq-gic-common.h"
+
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@PSW.BSP.Power.Basic, 2019/12/10, sjc Add for PCIE irq power debug */
+#ifdef CONFIG_MHI_DEBUG
+enum MHI_DEBUG_INDEX{
+	MSI_RESUME_SWITCH,
+	MSI_DATA_EVENT_INDEX,
+	MSI_CTRL_INDEX,
+	MSI_BW_INDEX,
+	MSI_DEBUG_MAX,
+};
+
+extern  int g_msi_power[MSI_DEBUG_MAX][1];
+#endif
+#endif /*VENDOR_EDIT*/
+
+#ifdef VENDOR_EDIT
+//Nanwei.Deng@BSP.Power.Basic 2018/06/14 add formodem irq, ,case03529649
+
+//add for modem wake up source
+static char MODEM_IRQ_NAME[]=					"modem";				//eg:modem
+static char MODEM_IPA_IRQ_NAME[]=				"ipa";					//eg:ipa
+static char WLAN_DATA_IRQ_NAME[]=				"WLAN"; 				//eg:WLAN_CE_0 ~WLAN_CE_11
+static char GLINK_NATIVE_ADSP_IRQ_NAME[]=		"glink-native-adsp";	//eg:glink-native-adsp
+static char GLINK_NATIVE_CDSP_IRQ_NAME[]=		"glink-native-cdsp";	//eg:glink-native-cdsp
+static char GLINK_NATIVE_SLPI_IRQ_NAME[]=		"glink-native-slpi";	//eg:glink-native-slpi
+static char GLINK_NATIVE_MODEM_IRQ_NAME[]=		"glink-native-modem";	//eg:glink-native-modem
+static char ADSP_IRQ_NAME[]=					"adsp";					//eg:adsp
+static char CDSP_IRQ_NAME[]=					"cdsp";					//eg:cdsp
+static char SLPI_IRQ_NAME[]=					"spli";					//eg:spli
+
+extern u64 wakeup_source_count_all;
+extern u64 wakeup_source_count_modem;
+extern u64 wakeup_source_count_adsp;
+extern u64 wakeup_source_count_cdsp;
+extern u64 wakeup_source_count_slpi;
+extern u64 wakeup_source_count_wifi ;
+extern u64 wakeup_source_count_glink ;
+
+#define MODEM_WAKEUP_SRC_NUM 3
+#define MODEM_DIAG_WS_INDEX 0
+#define MODEM_IPA_WS_INDEX 1
+#define MODEM_QMI_WS_INDEX 2
+extern int modem_wakeup_src_count[MODEM_WAKEUP_SRC_NUM];
+extern char modem_wakeup_src_string[MODEM_WAKEUP_SRC_NUM][10];
+#endif /*VENDOR_EDIT*/
+
+#ifdef VENDOR_EDIT
+//#ifdef FEATURE_DATA_NWPOWER
+//Asiga@PSW.NW.DATA.2120730, 2019/06/26.
+//Add for: print qrtr debug msg and fix QMI wakeup statistics for QCOM platforms using glink.
+#define GLINK_IRQ_NAME "glink-native"
+extern u64 nw_pcie2_wakeup_times;
+extern u64 nw_wifi_wakeup_times;
+extern u64 nw_adsp_wakeup_times;
+extern u64 nw_cdsp_wakeup_times;
+extern u64 nw_slpi_wakeup_times;
+int qrtr_first_msg = 0;
+atomic_t ipcc_first_msg = ATOMIC_INIT(0);
+atomic_t pcie_rc2_first_msg_qmi = ATOMIC_INIT(0);
+//#endif /* FEATURE_DATA_NWPOWER */
+#endif /* VENDOR_EDIT */
 
 struct redist_region {
 	void __iomem		*redist_base;
@@ -350,6 +417,10 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 	u32 pending[32];
 	void __iomem *base = gic_data.dist_base;
 
+	#ifdef VENDOR_EDIT
+	//yunqing.zeng@bsp.power.basic  2019-12-22 add for wakeup counter for all in sleep stage.
+	wakeup_source_count_all++;
+	#endif /*VENDOR_EDIT*/
 	if (!msm_show_resume_irq_mask)
 		return;
 
@@ -372,6 +443,58 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 			name = desc->action->name;
 
 		pr_warn("%s: %d triggered %s\n", __func__, irq, name);
+#ifdef VENDOR_EDIT
+//Nanwei.Deng@BSP.Power.Basic, 2018/04/28, add for analysis power coumption.
+		if(name != NULL)
+		{
+			log_wakeup_reason(irq);
+			#ifdef VENDOR_EDIT
+			//Yuanfei.Liu@PSW.NW.DATA.2120730, 2019/07/11
+			//Add for: print qrtr debug msg and fix QMI wakeup statistics for QCOM platforms using glink
+			if (strncmp(name, GLINK_IRQ_NAME, strlen(GLINK_IRQ_NAME)) == 0) {
+				qrtr_first_msg = 1;
+				wakeup_source_count_glink++;
+			}
+			#endif /* VENDOR_EDIT */
+			if(strncmp(name, WLAN_DATA_IRQ_NAME, sizeof(WLAN_DATA_IRQ_NAME)-1) == 0)
+			{
+				wakeup_source_count_wifi++;
+				nw_wifi_wakeup_times++;
+			}
+			else if((strncmp(name, MODEM_IRQ_NAME, sizeof(MODEM_IRQ_NAME)-1) == 0)
+				 || (strncmp(name, MODEM_IPA_IRQ_NAME, sizeof(MODEM_IPA_IRQ_NAME)-1) == 0)
+				 || (strncmp(name, GLINK_NATIVE_MODEM_IRQ_NAME, sizeof(GLINK_NATIVE_MODEM_IRQ_NAME)-1) == 0))
+			{
+				wakeup_source_count_modem++;
+				if(strncmp(name, MODEM_IPA_IRQ_NAME, sizeof(MODEM_IPA_IRQ_NAME)-1) == 0)
+				{
+					modem_wakeup_src_count[MODEM_IPA_WS_INDEX]++;
+				}
+				else if(strncmp(name, MODEM_IRQ_NAME, sizeof(MODEM_IRQ_NAME)-1) == 0)
+				{
+					modem_wakeup_src_count[MODEM_QMI_WS_INDEX]++;
+				}
+			}
+			else if((strncmp(name, ADSP_IRQ_NAME, sizeof(ADSP_IRQ_NAME)-1) == 0)
+				 || (strncmp(name, GLINK_NATIVE_ADSP_IRQ_NAME, sizeof(GLINK_NATIVE_ADSP_IRQ_NAME)-1) == 0))
+			{
+				wakeup_source_count_adsp++;
+				nw_adsp_wakeup_times++;
+			}
+			else if((strncmp(name, CDSP_IRQ_NAME, sizeof(CDSP_IRQ_NAME)-1) == 0)
+				 || (strncmp(name, GLINK_NATIVE_CDSP_IRQ_NAME, sizeof(GLINK_NATIVE_CDSP_IRQ_NAME)-1) == 0))
+			{
+				wakeup_source_count_cdsp++;
+				nw_cdsp_wakeup_times++;
+			}
+			else if((strncmp(name, SLPI_IRQ_NAME, sizeof(SLPI_IRQ_NAME)-1) == 0)
+				 || (strncmp(name, GLINK_NATIVE_SLPI_IRQ_NAME, sizeof(GLINK_NATIVE_SLPI_IRQ_NAME)-1) == 0))
+			{
+				wakeup_source_count_slpi++;
+				nw_slpi_wakeup_times++;
+			}
+		}
+#endif /* VENDOR_EDIT */
 	}
 }
 
@@ -555,6 +678,18 @@ static int __gic_populate_rdist(struct redist_region *region, void __iomem *ptr)
 		gic_data_rdist_rd_base() = ptr;
 		gic_data_rdist()->phys_base = region->phys_base + offset;
 
+#ifndef VENDOR_EDIT
+		//Nanwei.Deng@BSP.power.Basic 2018/05/01
+		pr_info("CPU%d: found redistributor %lx region %d:%pa\n",
+			smp_processor_id(), mpidr,
+			(int)(region - gic_data.redist_regions),
+			&gic_data_rdist()->phys_base);
+#else
+		pr_debug("CPU%d: found redistributor %lx region %d:%pa\n",
+			smp_processor_id(), mpidr,
+			(int)(region - gic_data.redist_regions),
+			&gic_data_rdist()->phys_base);
+#endif
 		return 0;
 	}
 

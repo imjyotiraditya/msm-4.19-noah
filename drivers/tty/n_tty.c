@@ -769,7 +769,10 @@ static size_t __process_echoes(struct tty_struct *tty)
 #if defined(CONFIG_TTY_FLUSH_LOCAL_ECHO)
 	if (ldata->echo_commit != tail) {
 		if (!tty->delayed_work) {
+			#ifndef VENDOR_EDIT
+			// Bin.Xu@BSP.Kernel.Statbility 2020/5/7, avoid multi init work
 			INIT_DELAYED_WORK(&tty->echo_delayed_work, continue_process_echoes);
+			#endif /* VENDOR_EDIT */
 			schedule_delayed_work(&tty->echo_delayed_work, 1);
 		}
 		tty->delayed_work = 1;
@@ -1956,6 +1959,14 @@ static int n_tty_open(struct tty_struct *tty)
 	mutex_init(&ldata->output_lock);
 
 	tty->disc_data = ldata;
+
+#ifdef VENDOR_EDIT
+// Bin.Xu@BSP.Kernel.Statbility 2020/5/7, avoid multi init work
+#if defined(CONFIG_TTY_FLUSH_LOCAL_ECHO)
+	INIT_DELAYED_WORK(&tty->echo_delayed_work, continue_process_echoes);
+#endif
+#endif /* VENDOR_EDIT */
+
 	tty->closing = 0;
 	/* indicate buffer work may resume */
 	clear_bit(TTY_LDISC_HALTED, &tty->flags);

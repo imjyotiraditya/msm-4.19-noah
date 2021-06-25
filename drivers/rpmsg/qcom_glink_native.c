@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2016-2017, Linaro Ltd
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/idr.h>
@@ -96,7 +96,6 @@ struct glink_core_rx_intent {
 	size_t size;
 	bool reuse;
 	bool in_use;
-	bool advertised;
 	u32 offset;
 
 	struct list_head node;
@@ -222,7 +221,6 @@ struct glink_channel {
 
 	struct mutex intent_req_lock;
 	bool intent_req_result;
-	bool channel_ready;
 	atomic_t intent_req_comp;
 	wait_queue_head_t intent_req_event;
 };
@@ -738,15 +736,6 @@ static int qcom_glink_advertise_intent(struct qcom_glink *glink,
 		__le32 liid;
 	} __packed;
 	struct command cmd;
-	unsigned long flags;
-
-	spin_lock_irqsave(&channel->intent_lock, flags);
-	if (intent->advertised) {
-		spin_unlock_irqrestore(&channel->intent_lock, flags);
-		return 0;
-	}
-	intent->advertised = true;
-	spin_unlock_irqrestore(&channel->intent_lock, flags);
 
 	cmd.id = cpu_to_le16(RPM_CMD_INTENT);
 	cmd.lcid = cpu_to_le16(channel->lcid);
@@ -852,7 +841,6 @@ static void qcom_glink_handle_intent_req(struct qcom_glink *glink,
 	struct glink_core_rx_intent *intent = NULL;
 	struct glink_core_rx_intent *tmp;
 	struct glink_channel *channel;
-	struct rpmsg_endpoint *ept;
 	unsigned long flags;
 	int iid;
 
@@ -878,9 +866,8 @@ static void qcom_glink_handle_intent_req(struct qcom_glink *glink,
 		return;
 	}
 
-	ept = &channel->ept;
 	intent = qcom_glink_alloc_intent(glink, channel, size, false);
-	if (intent && channel->channel_ready)
+	if (intent)
 		qcom_glink_advertise_intent(glink, channel, intent);
 
 	qcom_glink_send_intent_req_ack(glink, channel, !!intent);
@@ -955,14 +942,6 @@ static int qcom_glink_rx_data(struct qcom_glink *glink, size_t avail)
 		/* Drop the message */
 		goto advance_rx;
 	}
-
-	if (!channel->ept.cb) {
-		dev_err(glink->dev,
-			"Callback not available on channel %s\n",
-			channel->name);
-		return -EAGAIN;
-	}
-
 	CH_INFO(channel, "chunk_size:%d left_size:%d\n", chunk_size, left_size);
 
 	if (glink->intentless) {
@@ -1384,33 +1363,16 @@ static int qcom_glink_announce_create(struct rpmsg_device *rpdev)
 	struct device_node *np = rpdev->dev.of_node;
 	struct qcom_glink *glink = channel->glink;
 	struct glink_core_rx_intent *intent;
-	struct glink_core_rx_intent *tmp;
 	const struct property *prop = NULL;
 	__be32 defaults[] = { cpu_to_be32(SZ_1K), cpu_to_be32(5) };
 	int num_intents;
 	int num_groups = 1;
 	__be32 *val = defaults;
-	unsigned long flags;
-	int iid;
 	int size;
 
 	CH_INFO(channel, "Entered\n");
 	if (glink->intentless || !completion_done(&channel->open_ack))
 		return 0;
-
-	channel->channel_ready = true;
-
-	/*Serve any pending intent request*/
-	spin_lock_irqsave(&channel->intent_lock, flags);
-	idr_for_each_entry(&channel->liids, tmp, iid) {
-		if (!tmp->reuse && !tmp->advertised) {
-			intent = tmp;
-			spin_unlock_irqrestore(&channel->intent_lock, flags);
-			qcom_glink_advertise_intent(glink, channel, intent);
-			spin_lock_irqsave(&channel->intent_lock, flags);
-		}
-	}
-	spin_unlock_irqrestore(&channel->intent_lock, flags);
 
 	prop = of_find_property(np, "qcom,intents", NULL);
 	if (prop) {
@@ -1970,6 +1932,14 @@ static void qcom_glink_cancel_rx_work(struct qcom_glink *glink)
 		kfree(dcmd);
 }
 
+#ifdef VENDOR_EDIT
+//Nanwei.Deng@BSP.Power.Basic, 2019/05/30 add for RM_TAG_POWER_DEBUG
+#define GLINK_NATIVE_IRQ_NUM_MAX 10
+#define GLINK_NATIVE_IRQ_NAME_LEN 24
+static char glink_native_irq_names[GLINK_NATIVE_IRQ_NUM_MAX][GLINK_NATIVE_IRQ_NAME_LEN];
+#endif/*VENDOR_EDIT*/
+
+
 struct qcom_glink *qcom_glink_native_probe(struct device *dev,
 					   unsigned long features,
 					   struct qcom_glink_pipe *rx,
@@ -1981,6 +1951,13 @@ struct qcom_glink *qcom_glink_native_probe(struct device *dev,
 	int size;
 	int irq;
 	int ret;
+
+#ifdef VENDOR_EDIT
+	//Nanwei.Deng@BSP.Power.Basic, 2019/05/30 add for RM_TAG_POWER_DEBUG
+		static int glink_native_irq_index = 1;
+		char *glink_native_irq_name = glink_native_irq_names[0];
+		snprintf(glink_native_irq_names[0], GLINK_NATIVE_IRQ_NAME_LEN, "glink-native");
+#endif/*VENDOR_EDIT*/
 
 	glink = devm_kzalloc(dev, sizeof(*glink), GFP_KERNEL);
 	if (!glink)
@@ -2033,10 +2010,25 @@ struct qcom_glink *qcom_glink_native_probe(struct device *dev,
 		dev_err(dev, "failed to register early notif %d\n", ret);
 
 	irq = of_irq_get(dev->of_node, 0);
+#ifndef VENDOR_EDIT
+//Nanwei.Deng@BSP.Power.Basic, 2019/05/30 add for RM_TAG_POWER_DEBUG
 	ret = devm_request_irq(dev, irq,
 			       qcom_glink_native_intr,
 			       IRQF_NO_SUSPEND | IRQF_SHARED,
 			       "glink-native", glink);
+#else
+		if(glink_native_irq_index < GLINK_NATIVE_IRQ_NUM_MAX){
+			snprintf(glink_native_irq_names[glink_native_irq_index], GLINK_NATIVE_IRQ_NAME_LEN, "glink-native-%s", glink->name);
+			glink_native_irq_name = glink_native_irq_names[glink_native_irq_index];
+			glink_native_irq_index++;
+		}
+		ret = devm_request_irq(dev, irq,
+					   qcom_glink_native_intr,
+					   IRQF_NO_SUSPEND | IRQF_SHARED,
+					   glink_native_irq_name, glink);
+		pr_err("qcom_glink_native_probe: def:%s final:%s index:%d irq:%d\n", glink_native_irq_names[0], glink_native_irq_name, glink_native_irq_index,irq);
+#endif/*VENDOR_EDIT*/
+
 	if (ret) {
 		dev_err(dev, "failed to request IRQ\n");
 		goto unregister;

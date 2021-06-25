@@ -108,10 +108,18 @@ static ssize_t store_##name(struct device *dev,				\
 	return count;							\
 }
 
+#ifdef VENDOR_EDIT
+//cuixiaogang@SRC.hypnus. 2019.6.12. change permission for hypnusd devbw feature
+#define gov_attr(__attr, min, max)	\
+show_attr(__attr)			\
+store_attr(__attr, (min), (max))	\
+static DEVICE_ATTR(__attr, 0664, show_##__attr, store_##__attr)
+#else
 #define gov_attr(__attr, min, max)	\
 show_attr(__attr)			\
 store_attr(__attr, (min), (max))	\
 static DEVICE_ATTR(__attr, 0644, show_##__attr, store_##__attr)
+#endif
 
 #define show_list_attr(name, n) \
 static ssize_t show_list_##name(struct device *dev,			\
@@ -795,7 +803,11 @@ static ssize_t sample_ms_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%u\n", node->sample_ms);
 }
 
+#ifdef VENDOR_EDIT
+static DEVICE_ATTR(sample_ms, 0664, sample_ms_show, sample_ms_store);
+#else
 static DEVICE_ATTR_RW(sample_ms);
+#endif
 
 gov_attr(guard_band_mbps, 0U, 2000U);
 gov_attr(decay_rate, 0U, 100U);

@@ -525,7 +525,22 @@ static void flush_to_ldisc(struct work_struct *work)
 			continue;
 		}
 
+#ifdef VENDOR_EDIT
+		/* Bin.Xu@BSP.Kernel.Statbility 2020/5/7
+		 * the tty->driver_data should use after uart_open
+		 * but current occur the workqueue run before uart_open
+		 * when tty->driver_data != NULL means the uart_open finish
+		 */
+		if(READ_ONCE(port->itty) != NULL && READ_ONCE(port->itty)->driver_data != NULL)
+			count = receive_buf(port, head, count);
+		else {
+			count = 0;
+			pr_info("oppo driver_data == NULL skip the buf process, uart_open is not finished\n");
+		}
+#else
 		count = receive_buf(port, head, count);
+#endif /* VENDOR_EDIT */
+
 		if (!count)
 			break;
 		head->read += count;

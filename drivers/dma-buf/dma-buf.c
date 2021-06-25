@@ -42,6 +42,12 @@
 #include <linux/hashtable.h>
 #include <uapi/linux/dma-buf.h>
 
+#ifdef CONFIG_OPLUS_FEATURE_LOWMEM_DBG
+/* #Hailong.Liu@BSP.Kernel.MM, 2020/06/19, Add for dump memory */
+/* usage when lowmmem occurs. */
+#include <soc/oppo/lowmem_dbg.h>
+#endif /* CONFIG_OPLUS_FEATURE_LOWMEM_DBG */
+
 static atomic_long_t name_counter;
 
 static inline int is_dma_buf_file(struct file *);
@@ -383,6 +389,15 @@ static inline int is_dma_buf_file(struct file *file)
 {
 	return file->f_op == &dma_buf_fops;
 }
+
+#ifdef CONFIG_OPLUS_FEATURE_LOWMEM_DBG
+/* #Hailong.Liu@BSP.Kernel.MM, 2020/06/19, Add for dump memory */
+/* usage when lowmmem occurs. */
+inline int oppo_is_dma_buf_file(struct file *file)
+{
+       return is_dma_buf_file(file);
+}
+#endif /* CONFIG_OPLUS_FEATURE_LOWMEM_DBG */
 
 /**
  * DOC: dma buf device access

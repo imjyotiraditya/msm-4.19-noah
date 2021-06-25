@@ -895,8 +895,9 @@ static const struct adc_channels adc_chans_pmic5[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_XOTHERM)
 	[ADC_BAT_THERM_PU2]	= ADC_CHAN_TEMP("bat_therm_pu2", 1,
 					SCALE_HW_CALIB_BATT_THERM_100K)
+	/*mapenglong@ODM.HQ.BSP.CHG, 2020/05/28, Modify for battery temperature detectionr*/
 	[ADC_BAT_THERM_PU1]	= ADC_CHAN_TEMP("bat_therm_pu1", 1,
-					SCALE_HW_CALIB_BATT_THERM_30K)
+					SCALE_HW_CALIB_DEFAULT)
 	[ADC_BAT_THERM_PU3]	= ADC_CHAN_TEMP("bat_therm_pu3", 1,
 					SCALE_HW_CALIB_BATT_THERM_400K)
 	[ADC_BAT_ID_PU2]	= ADC_CHAN_TEMP("bat_id", 1,
@@ -923,12 +924,39 @@ static const struct adc_channels adc_chans_pmic5[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_PM5_SMB_TEMP)
 	[ADC_AMUX_THM3]			= ADC_CHAN_TEMP("amux_thm3", 1,
 					SCALE_HW_CALIB_PM5_SMB_TEMP)
+#ifdef VENDOR_EDIT
+/*mapenglong@BSP.CHG.Basic, 2020/06/01, modefy for usb connector temp check*/
+	[ADC_GPIO1_PU2] = ADC_CHAN_VOLT("usb_temp1", 1,
+					SCALE_HW_CALIB_DEFAULT)
+#else
 	[ADC_GPIO1_PU2]	= ADC_CHAN_TEMP("gpio1_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
+#endif
+
+#ifndef ODM_HQ_EDIT
+/*mapenglong@ODM_HQ.charge 2020/06/19 Read temp*/
+	[ADC_GPIO2_PU2]	= ADC_CHAN_VOLT("gpio2_pu2", 1,
+					SCALE_HW_CALIB_DEFAULT)
+#else
 	[ADC_GPIO2_PU2]	= ADC_CHAN_TEMP("gpio2_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
-	[ADC_GPIO3_PU2]	= ADC_CHAN_TEMP("gpio3_pu2", 1,
-					SCALE_HW_CALIB_THERM_100K_PULLUP)
+#endif
+
+//#ifdef ODM_HQ_EDIT
+/*Dianlong.Li@ODM_HQ.SYSTEM 2020/05/21 Read voltage*/
+#ifdef VENDOR_EDIT
+/*mapenglong@BSP.CHG.Basic, 2020/06/01, modefy for usb connector temp check*/
+	[ADC_GPIO3_PU2] = ADC_CHAN_VOLT("usb_temp2", 1,
+					SCALE_HW_CALIB_DEFAULT)
+#else
+	[ADC_GPIO3_PU2] = ADC_CHAN_VOLT("gpio3_pu2", 1,
+					SCALE_HW_CALIB_DEFAULT)
+#endif
+
+//#else
+//	[ADC_GPIO3_PU2]	= ADC_CHAN_TEMP("gpio3_pu2", 1,
+//					SCALE_HW_CALIB_THERM_100K_PULLUP)
+//#endif
 	[ADC_GPIO4_PU2]	= ADC_CHAN_TEMP("gpio4_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
 };
