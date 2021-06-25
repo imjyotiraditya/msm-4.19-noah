@@ -21,6 +21,12 @@
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
 #endif
+//#ifdef VENDOR_EDIT
+//Zhou.Zheng@CN.NFC.Basic.Hardware,2674926, 2019/12/16,
+//Add for : ST NXP chip common software
+#include <soc/oppo/oppo_nfc.h>
+//#endif /* VENDOR_EDIT */
+
 #include <linux/jiffies.h>
 
 struct nqx_platform_data {
@@ -45,6 +51,12 @@ struct nqx_dev {
 	wait_queue_head_t	read_wq;
 	wait_queue_head_t	cold_reset_read_wq;
 	struct	mutex		read_mutex;
+    #ifdef VENDOR_EDIT
+    //Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+    //add spi ven flag and protect the access to it
+	/* protect the access to spi_ven_enabled flag */
+	struct  mutex        spi_mutex;
+    #endif /* VENDOR_EDIT */
 	struct	mutex		dev_ref_mutex;
 	struct	i2c_client	*client;
 	dev_t			devno;
@@ -60,6 +72,12 @@ struct nqx_dev {
 	unsigned int		ese_gpio;
 	/* NFC VEN pin state powered by Nfc */
 	bool			nfc_ven_enabled;
+    #ifdef VENDOR_EDIT
+    //Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+    //add spi ven flag and protect the access to it
+	/* stores the VEN pin state powered by Spi */
+	bool            spi_ven_enabled;
+	#endif /* VENDOR_EDIT */
 	/* NFC state reflected from MW */
 	bool			nfc_enabled;
 	/* NFC_IRQ state */
@@ -153,6 +171,23 @@ static irqreturn_t nqx_dev_irq_handler(int irq, void *dev_id)
 
 	return IRQ_HANDLED;
 }
+
+#ifdef VENDOR_EDIT
+//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+//add spi ven flag and protect the access to it
+static void sn100_access_lock(struct nqx_dev *nqx_dev)
+{
+    pr_info("%s: Enter\n", __func__);
+    mutex_lock(&nqx_dev->spi_mutex);
+    pr_info("%s: Exit\n", __func__);
+}
+static void sn100_access_unlock(struct nqx_dev *nqx_dev)
+{
+    pr_info("%s: Enter\n", __func__);
+    mutex_unlock(&nqx_dev->spi_mutex);
+    pr_info("%s: Exit\n", __func__);
+}
+#endif /* VENDOR_EDIT */
 
 static int is_data_available_for_read(struct nqx_dev *nqx_dev)
 {
@@ -437,6 +472,12 @@ static int sn100_ese_pwr(struct nqx_dev *nqx_dev, unsigned long arg)
 {
 	int r = -1;
 
+	#ifdef VENDOR_EDIT
+	//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+	//add spi ven flag and protect the access to it
+	dev_err(&nqx_dev->client->dev,"%s:%d arg=%ld\n", __func__, __LINE__, arg);
+	sn100_access_lock(nqx_dev);
+    #endif /* VENDOR_EDIT */
 	if (arg == ESE_POWER_ON) {
 		/**
 		 * Let's store the NFC VEN pin state
@@ -447,6 +488,11 @@ static int sn100_ese_pwr(struct nqx_dev *nqx_dev, unsigned long arg)
 		 */
 		nqx_dev->nfc_ven_enabled =
 			gpio_get_value(nqx_dev->en_gpio);
+		#ifdef VENDOR_EDIT
+		//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+		//add spi ven flag and protect the access to it
+		nqx_dev->spi_ven_enabled = true;
+		#endif /* VENDOR_EDIT */
 		if (!nqx_dev->nfc_ven_enabled) {
 			dev_dbg(&nqx_dev->client->dev, "eSE HAL service setting en_gpio HIGH\n");
 			gpio_set_value(nqx_dev->en_gpio, 1);
@@ -456,7 +502,12 @@ static int sn100_ese_pwr(struct nqx_dev *nqx_dev, unsigned long arg)
 			dev_dbg(&nqx_dev->client->dev, "en_gpio already HIGH\n");
 		}
 		r = 0;
-	} else if (arg == ESE_POWER_OFF) {
+	} else if (arg == 1) {
+		#ifdef VENDOR_EDIT
+		//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+		//add spi ven flag and protect the access to it
+		nqx_dev->spi_ven_enabled = false;
+		#endif /* VENDOR_EDIT */
 		if (!nqx_dev->nfc_ven_enabled) {
 			dev_dbg(&nqx_dev->client->dev, "NFC not enabled, disabling en_gpio\n");
 			gpio_set_value(nqx_dev->en_gpio, 0);
@@ -502,7 +553,20 @@ static int sn100_ese_pwr(struct nqx_dev *nqx_dev, unsigned long arg)
 	} else if (arg == ESE_POWER_STATE) {
 		// eSE power state
 		r = gpio_get_value(nqx_dev->en_gpio);
+		#ifdef VENDOR_EDIT
+		//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+		//add spi ven flag and protect the access to it
+		/* If NFC is enable, the VEN is hign, must  set spi_ven_enabled to true because esehal will not ESE_SET_PWR=1 below such situation */
+		nqx_dev->spi_ven_enabled = !!r;
+		dev_err(&nqx_dev->client->dev, "ven state r=%d,spi_ven_enabled=%d\n", r, nqx_dev->spi_ven_enabled);
+		#endif /* VENDOR_EDIT */
 	}
+
+	#ifdef VENDOR_EDIT
+	//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+	//add spi ven flag and protect the access to it
+	sn100_access_unlock(nqx_dev);
+	#endif /* VENDOR_EDIT */
 	return r;
 }
 
@@ -690,7 +754,14 @@ int nfc_ioctl_power_states(struct file *filp, unsigned long arg)
 	int r = 0;
 	struct nqx_dev *nqx_dev = filp->private_data;
 
-	if (arg == NFC_POWER_OFF) {
+	#ifdef VENDOR_EDIT
+	//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+	//add spi ven flag and protect the access to it
+	dev_err(&nqx_dev->client->dev,"%s:%d arg=%ld\n", __func__, __LINE__, arg);
+	sn100_access_lock(nqx_dev);
+	#endif /* VENDOR_EDIT */
+
+	if (arg == 0) {
 		/*
 		 * We are attempting a hardware reset so let us disable
 		 * interrupts to avoid spurious notifications to upper
@@ -713,11 +784,24 @@ int nfc_ioctl_power_states(struct file *filp, unsigned long arg)
 			} else {
 				dev_dbg(&nqx_dev->client->dev, "keeping en_gpio high\n");
 			}
+		#ifdef VENDOR_EDIT
+		//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+		//add spi ven flag and protect the access to it
+		} else if(nqx_dev->spi_ven_enabled == false){
+			dev_err(&nqx_dev->client->dev, "spi_ven_enabled is false, set en_gpio to low\n");
+			gpio_set_value(nqx_dev->en_gpio, 0);
+			usleep_range(10000, 10100);
+		} else {
+			dev_err(&nqx_dev->client->dev, "hold ven state high(%d),spi_ven_enabled=%d\n",
+				    gpio_get_value(nqx_dev->en_gpio), nqx_dev->spi_ven_enabled);
+		}
+		#else
 		} else {
 			dev_dbg(&nqx_dev->client->dev, "ese_gpio invalid, set en_gpio to low\n");
 			gpio_set_value(nqx_dev->en_gpio, 0);
 			usleep_range(10000, 10100);
 		}
+        #endif /* VENDOR_EDIT */
 		if (nqx_dev->pdata->clk_pin_voting) {
 			r = nqx_clock_deselect(nqx_dev);
 			if (r < 0)
@@ -733,8 +817,23 @@ int nfc_ioctl_power_states(struct file *filp, unsigned long arg)
 			gpio_set_value(nqx_dev->firm_gpio, 0);
 			usleep_range(10000, 10100);
 		}
-		gpio_set_value(nqx_dev->en_gpio, 1);
-		usleep_range(10000, 10100);
+		#ifdef VENDOR_EDIT
+		//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+		//add spi ven flag and protect the access to it
+		if (gpio_get_value(nqx_dev->en_gpio) || nqx_dev->spi_ven_enabled) {
+			dev_err(&nqx_dev->client->dev, "VEN gpio already high\n");
+		} else {
+			gpio_set_value(nqx_dev->en_gpio, 1);
+			usleep_range(10000, 10100);
+		}
+		#else
+		if (gpio_get_value(nqx_dev->en_gpio)) {
+			dev_dbg(&nqx_dev->client->dev, "VEN gpio already high\n");
+		} else {
+			gpio_set_value(nqx_dev->en_gpio, 1);
+			usleep_range(10000, 10100);
+		}
+		#endif /* VENDOR_EDIT */
 		if (nqx_dev->pdata->clk_pin_voting) {
 			r = nqx_clock_select(nqx_dev);
 			if (r < 0)
@@ -742,6 +841,19 @@ int nfc_ioctl_power_states(struct file *filp, unsigned long arg)
 		}
 		nqx_dev->nfc_ven_enabled = true;
 	} else if (arg == NFC_FW_DWL_VEN_TOGGLE) {
+		#ifdef VENDOR_EDIT
+		//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+		//add spi ven flag and protect the access to it
+		if(nqx_dev->spi_ven_enabled){
+			/* NFCC fw/download should not be allowed if ese is used
+			* by SPI
+			*/
+			dev_err(&nqx_dev->client->dev,"%s NFCC should not be allowed to reset/FW download \n", __func__);
+
+			sn100_access_unlock(nqx_dev);
+			return -EBUSY; /* Device or resource busy */
+		}
+		#endif /* VENDOR_EDIT */
 		/*
 		 * We are switching to Dowload Mode, toggle the enable pin
 		 * in order to set the NFCC in the new mode
@@ -802,6 +914,11 @@ int nfc_ioctl_power_states(struct file *filp, unsigned long arg)
 		r = -ENOIOCTLCMD;
 	}
 
+    #ifdef VENDOR_EDIT
+	//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+	//add spi ven flag and protect the access to it
+	sn100_access_unlock(nqx_dev);
+	#endif /* VENDOR_EDIT */
 	return r;
 }
 
@@ -810,6 +927,11 @@ static long nfc_compat_ioctl(struct file *pfile, unsigned int cmd,
 				unsigned long arg)
 {
 	long r = 0;
+	#ifdef VENDOR_EDIT
+	//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+	//add spi ven flag and protect the access to it
+	struct nqx_dev *nqx_dev = pfile->private_data;
+    #endif /* VENDOR_EDIT */
 
 	arg = (compat_u64)arg;
 	switch (cmd) {
@@ -817,10 +939,32 @@ static long nfc_compat_ioctl(struct file *pfile, unsigned int cmd,
 		nfc_ioctl_power_states(pfile, arg);
 		break;
 	case ESE_SET_PWR:
+		#ifdef VENDOR_EDIT
+		//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+		//add spi ven flag and protect the access to it
+		if ((nqx_dev->nqx_info.info.chip_type == NFCC_SN100_A) ||
+			(nqx_dev->nqx_info.info.chip_type == NFCC_SN100_B)) {
+			r = sn100_ese_pwr(nqx_dev, arg);
+		} else {
+			r = nqx_ese_pwr(nqx_dev, arg);
+		}
+		#else
 		nqx_ese_pwr(pfile->private_data, arg);
+        #endif /* VENDOR_EDIT */
 		break;
 	case ESE_GET_PWR:
+        #ifdef VENDOR_EDIT
+        //Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+        //add spi ven flag and protect the access to it
+		if ((nqx_dev->nqx_info.info.chip_type == NFCC_SN100_A) ||
+			(nqx_dev->nqx_info.info.chip_type == NFCC_SN100_B)) {
+			r = sn100_ese_pwr(nqx_dev, 3);
+		} else {
+			r = nqx_ese_pwr(nqx_dev, 3);
+        }
+        #else
 		nqx_ese_pwr(pfile->private_data, 3);
+        #endif /* VENDOR_EDIT */
 		break;
 	case SET_RX_BLOCK:
 		break;
@@ -1248,6 +1392,11 @@ static int nqx_probe(struct i2c_client *client,
 	int irqn = 0;
 	struct nqx_platform_data *platform_data;
 	struct nqx_dev *nqx_dev;
+	//#ifdef VENDOR_EDIT
+	//Zhou.Zheng@CN.NFC.Basic.Hardware,2674926, 2019/12/16,
+	//Add for : ST NXP chip common software
+	CHECK_NFC_CHIP(NQ310);
+	//#endif /* VENDOR_EDIT */
 
 	dev_dbg(&client->dev, "%s: enter\n", __func__);
 	if (client->dev.of_node) {
@@ -1426,6 +1575,12 @@ static int nqx_probe(struct i2c_client *client,
 	mutex_init(&nqx_dev->read_mutex);
 	mutex_init(&nqx_dev->dev_ref_mutex);
 	spin_lock_init(&nqx_dev->irq_enabled_lock);
+	#ifdef VENDOR_EDIT
+	//Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+	//add spi ven flag and protect the access to it
+	mutex_init(&nqx_dev->spi_mutex);/* init spi_ven_enabled to false */
+	nqx_dev->spi_ven_enabled = false;
+	#endif /* VENDOR_EDIT */
 
 	r = alloc_chrdev_region(&nqx_dev->devno, 0, DEV_COUNT, DEVICE_NAME);
 	if (r < 0) {
@@ -1476,8 +1631,19 @@ static int nqx_probe(struct i2c_client *client,
 		/* make sure NFCC is not enabled */
 		gpio_set_value(platform_data->en_gpio, 0);
 		/* We don't think there is hardware switch NFC OFF */
+		#ifndef VENDOR_EDIT
+		//zhang.nan@CN.NFC.Basic.hardware,2108731 2019/06/21,
+		//Modify for FW26 HW check fail
 		goto err_request_hw_check_failed;
+		#else
+		//goto err_request_hw_check_failed;
+		#endif /* VENDOR_EDIT */
 	}
+        #ifdef VENDOR_EDIT
+        //zhang.nan@CN.NFC.Basic.hardware,2108731 2019/06/22,
+        //Modify for FW26 HW check fail, need to update chip_type
+        nqx_dev->nqx_info.info.chip_type = NFCC_SN100_B;
+        #endif /* VENDOR_EDIT */
 
 	/* Register reboot notifier here */
 	r = register_reboot_notifier(&nfcc_notifier);
@@ -1529,6 +1695,11 @@ err_class_create:
 	unregister_chrdev_region(nqx_dev->devno, DEV_COUNT);
 err_char_dev_register:
 	mutex_destroy(&nqx_dev->read_mutex);
+    #ifdef VENDOR_EDIT
+    //Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+    //add spi ven flag and protect the access to it
+	mutex_destroy(&nqx_dev->spi_mutex);
+    #endif /* VENDOR_EDIT */
 err_clkreq_gpio:
 	gpio_free(platform_data->clkreq_gpio);
 err_ese_gpio:
@@ -1575,6 +1746,14 @@ static int nqx_remove(struct i2c_client *client)
 	class_destroy(nqx_dev->nqx_class);
 	unregister_chrdev_region(nqx_dev->devno, DEV_COUNT);
 	mutex_destroy(&nqx_dev->read_mutex);
+    #ifdef VENDOR_EDIT
+    //Dongdong.Chang@CN.NFC.Basic.Hardware.2084619, 2019/04/25,
+    //add spi ven flag and protect the access to it
+	mutex_destroy(&nqx_dev->spi_mutex);
+	nqx_dev->nfc_ven_enabled = false;
+	nqx_dev->spi_ven_enabled = false;
+    #endif /* VENDOR_EDIT */
+
 	mutex_destroy(&nqx_dev->dev_ref_mutex);
 	gpio_free(nqx_dev->clkreq_gpio);
 	/* optional gpio, not sure was configured in probe */
