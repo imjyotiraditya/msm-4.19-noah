@@ -1721,8 +1721,15 @@ config VM_EVENT_COUNTERS
 	  on EXPERT systems.  /proc/vmstat will only show page counts
 	  if VM event counters are disabled.
 
+# Liunianliang@ODM.HQ.BSP.Stability, 2020/06/06, change default vaule to n for slab meminfo
 config SLUB_DEBUG
-	default y
+	#ifdef VENDOR_EDIT
+	#Wen.Luo@Bsp.Kernel.Stability, 2018/12/05, Add for aging test, slub debug config
+	default y if OPPO_SLUB_TEST = "true"
+	default n
+	#else
+	#default y
+	#endif
 	bool "Enable SLUB debugging support" if EXPERT
 	depends on SLUB && SYSFS
 	help
