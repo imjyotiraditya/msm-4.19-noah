@@ -4024,6 +4024,13 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
 
 	snprintf(strpid, PID_SIZE, "%d", current->pid);
 	buf_size = strlen(current->comm) + strlen("_") + strlen(strpid) + 1;
+
+#ifdef VENDOR_EDIT
+// Bin.Xu@BSP.Kernel.Stability, 2020/5/7, checklist: snprintf-out-of-bounds fix
+	if (buf_size < UL_SIZE)
+		buf_size = UL_SIZE;
+#endif /*VENDOR_EDIT*/
+
 	VERIFY(err, NULL != (fl->debug_buf = kzalloc(buf_size, GFP_KERNEL)));
 	if (err) {
 		kfree(fl);
