@@ -1043,4 +1043,8 @@ void __init swap_setup(void)
 	 * Right now other parts of the system means that we
 	 * _really_ don't want to cluster much more
 	 */
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_ZRAM_OPT)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-25, add oppo zram opt support*/
+	page_cluster = 0;
+#endif /*VENDOR_EDIT*/
 }

@@ -73,7 +73,19 @@
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
 #include "internal.h"
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEM_MONITOR)
+#include <linux/oppo_healthinfo/memory_monitor.h>
+#endif /*VENDOR_EDIT*/
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+#include "multi_freearea.h"
+#endif
+
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-21, add oppo memory isolate support*/
+#include <linux/oppo_memory_isolate.h>
+#endif /*VENDOR_EDIT*/
 /* prevent >1 _updater_ of zone percpu pageset ->high and ->batch fields */
 static DEFINE_MUTEX(pcp_batch_high_lock);
 #define MIN_PERCPU_PAGELIST_FRACTION	(8)
@@ -132,6 +144,7 @@ unsigned long totalcma_pages __read_mostly;
 
 int percpu_pagelist_fraction;
 gfp_t gfp_allowed_mask __read_mostly = GFP_BOOT_MASK;
+
 
 /*
  * A cached value of the page's pageblock's migratetype, used when the page is
@@ -246,6 +259,13 @@ char * const migratetype_names[MIGRATE_TYPES] = {
 #ifdef CONFIG_CMA
 	"CMA",
 #endif
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Hui.Fan@PSW.BSP.Kernel.MM, 2017-8-21
+ * Add a migrate type to manage special page alloc/free
+ */
+	"OPPO2",
+#endif /* VENDOR_EDIT */
+
 	"HighAtomic",
 #ifdef CONFIG_MEMORY_ISOLATION
 	"Isolate",
@@ -885,6 +905,10 @@ static inline void __free_one_page(struct page *page,
 	struct page *buddy;
 	unsigned int max_order;
 	struct capture_control *capc = task_capc(zone);
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    unsigned int flc;
+#endif
 
 	max_order = min_t(unsigned int, MAX_ORDER, pageblock_order + 1);
 
@@ -920,7 +944,13 @@ continue_merging:
 			clear_page_guard(zone, buddy, order, migratetype);
 		} else {
 			list_del(&buddy->lru);
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+            flc = page_to_flc(buddy);
+            zone->free_area[flc][order].nr_free--;
+#else
 			zone->free_area[order].nr_free--;
+#endif
 			rmv_page_order(buddy);
 		}
 		combined_pfn = buddy_pfn & pfn;
@@ -972,15 +1002,29 @@ done_merging:
 		higher_buddy = higher_page + (buddy_pfn - combined_pfn);
 		if (pfn_valid_within(buddy_pfn) &&
 		    page_is_buddy(higher_page, higher_buddy, order + 1)) {
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+            flc = page_to_flc(page);
+			list_add_tail(&page->lru,
+				&zone->free_area[flc][order].free_list[migratetype]);
+#else
 			list_add_tail(&page->lru,
 				&zone->free_area[order].free_list[migratetype]);
+#endif
 			goto out;
 		}
 	}
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    list_sort_add(page, zone, order, migratetype);
+out:
+    flc = page_to_flc(page);
+    zone->free_area[flc][order].nr_free++;
+#else
 	list_add(&page->lru, &zone->free_area[order].free_list[migratetype]);
 out:
 	zone->free_area[order].nr_free++;
+#endif
 }
 
 /*
@@ -1383,6 +1427,7 @@ static void __free_pages_boot_core(struct page *page, unsigned int order)
 	page_zone(page)->managed_pages += nr_pages;
 	set_page_refcounted(page);
 	__free_pages(page, order);
+
 }
 
 #if defined(CONFIG_HAVE_ARCH_EARLY_PFN_TO_NID) || \
@@ -1903,6 +1948,10 @@ static inline void expand(struct zone *zone, struct page *page,
 	int migratetype)
 {
 	unsigned long size = 1 << high;
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+	unsigned int flc = 0;
+#endif
 
 	while (high > low) {
 		area--;
@@ -1918,9 +1967,15 @@ static inline void expand(struct zone *zone, struct page *page,
 		 */
 		if (set_page_guard(zone, &page[size], high, migratetype))
 			continue;
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+        list_sort_add(&page[size], zone, high, migratetype);
+		flc = page_to_flc(&page[size]);
+		zone->free_area[flc][high].nr_free++;
+#else
 		list_add(&page[size].lru, &area->free_list[migratetype]);
 		area->nr_free++;
+#endif
 		set_page_order(&page[size], high);
 	}
 }
@@ -2057,22 +2112,41 @@ struct page *__rmqueue_smallest(struct zone *zone, unsigned int order,
 	unsigned int current_order;
 	struct free_area *area;
 	struct page *page;
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    unsigned int flc = 0, flc_tmp = 0, flc_last = 0;
+    for (flc = 0; flc < FREE_AREA_COUNTS; flc++) {
+        flc_tmp = ajust_flc(flc, order);
+#endif
 	/* Find a page of the appropriate size in the preferred list */
 	for (current_order = order; current_order < MAX_ORDER; ++current_order) {
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+		area = &(zone->free_area[flc_tmp][current_order]);
+#else
 		area = &(zone->free_area[current_order]);
+#endif
 		page = list_first_entry_or_null(&area->free_list[migratetype],
 							struct page, lru);
 		if (!page)
 			continue;
 		list_del(&page->lru);
 		rmv_page_order(page);
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+		flc_last = page_to_flc(page);
+		zone->free_area[flc_last][current_order].nr_free--;
+#else
 		area->nr_free--;
+#endif
 		expand(zone, page, order, current_order, area, migratetype);
 		set_pcppage_migratetype(page, migratetype);
 		return page;
 	}
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    }
+#endif
 	return NULL;
 }
 
@@ -2157,8 +2231,14 @@ static int move_freepages(struct zone *zone,
 		}
 
 		order = page_order(page);
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+        __list_del_entry(&page->lru);
+        list_sort_add(page, zone, order, migratetype);
+#else
 		list_move(&page->lru,
 			  &zone->free_area[order].free_list[migratetype]);
+#endif
 		page += 1 << order;
 		pages_moved += 1 << order;
 	}
@@ -2213,6 +2293,14 @@ static void change_pageblock_range(struct page *pageblock_page,
  */
 static bool can_steal_fallback(unsigned int order, int start_mt)
 {
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Shiming.Zhang@PSW.BSP.Kernel.MM, 2017-11-15
+ * could not steal MIGRATE_OPPO
+ */
+	if(is_migrate_oppo2(start_mt))
+		return false;
+#endif /*VENDOR_EDIT*/
+
 	/*
 	 * Leaving this order check is intended, although there is
 	 * relaxed order check in next check. The reason is that
@@ -2298,7 +2386,6 @@ static void steal_suitable_fallback(struct zone *zone, struct page *page,
 		unsigned int alloc_flags, int start_type, bool whole_block)
 {
 	unsigned int current_order = page_order(page);
-	struct free_area *area;
 	int free_pages, movable_pages, alike_pages;
 	int old_block_type;
 
@@ -2369,8 +2456,14 @@ static void steal_suitable_fallback(struct zone *zone, struct page *page,
 	return;
 
 single_page:
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    __list_del_entry(&page->lru);
+    list_sort_add(page, zone, current_order, start_type);
+#else
 	area = &zone->free_area[current_order];
 	list_move(&page->lru, &area->free_list[start_type]);
+#endif
 }
 
 /*
@@ -2437,6 +2530,12 @@ static void reserve_highatomic_pageblock(struct page *page, struct zone *zone,
 	/* Yoink! */
 	mt = get_pageblock_migratetype(page);
 	if (!is_migrate_highatomic(mt) && !is_migrate_isolate(mt)
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Shiming.Zhang@PSW.BSP.Kernel.MM, 2017-11-15
+ * could not reserve MIGRATE_OPPO as MIGRATE_HIGHATOMIC
+ */
+		&&!is_migrate_oppo2(mt)
+#endif /*VENDOR_EDIT*/
 	    && !is_migrate_cma(mt)) {
 		zone->nr_reserved_highatomic += pageblock_nr_pages;
 		set_pageblock_migratetype(page, MIGRATE_HIGHATOMIC);
@@ -2466,6 +2565,10 @@ static bool unreserve_highatomic_pageblock(const struct alloc_context *ac,
 	struct page *page;
 	int order;
 	bool ret;
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    int flc;
+#endif
 
 	for_each_zone_zonelist_nodemask(zone, z, zonelist, ac->high_zoneidx,
 								ac->nodemask) {
@@ -2478,8 +2581,17 @@ static bool unreserve_highatomic_pageblock(const struct alloc_context *ac,
 			continue;
 
 		spin_lock_irqsave(&zone->lock, flags);
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+        for (flc = 0; flc < FREE_AREA_COUNTS; flc++) {
+#endif
 		for (order = 0; order < MAX_ORDER; order++) {
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+			struct free_area *area = &(zone->free_area[flc][order]);
+#else
 			struct free_area *area = &(zone->free_area[order]);
+#endif
 
 			page = list_first_entry_or_null(
 					&area->free_list[MIGRATE_HIGHATOMIC],
@@ -2524,6 +2636,10 @@ static bool unreserve_highatomic_pageblock(const struct alloc_context *ac,
 				return ret;
 			}
 		}
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+        }
+#endif
 		spin_unlock_irqrestore(&zone->lock, flags);
 	}
 
@@ -2550,6 +2666,10 @@ __rmqueue_fallback(struct zone *zone, int order, int start_migratetype,
 	struct page *page;
 	int fallback_mt;
 	bool can_steal;
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    unsigned int flc = 0, flc_tmp = 0;
+#endif
 
 	/*
 	 * Do not steal pages from freelists belonging to other pageblocks
@@ -2564,9 +2684,19 @@ __rmqueue_fallback(struct zone *zone, int order, int start_migratetype,
 	 * approximates finding the pageblock with the most free pages, which
 	 * would be too costly to do exactly.
 	 */
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    for (flc = 0; flc < FREE_AREA_COUNTS; flc++) {
+        flc_tmp = ajust_flc(flc, order);
+#endif
 	for (current_order = MAX_ORDER - 1; current_order >= min_order;
 				--current_order) {
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+		area = &(zone->free_area[flc_tmp][current_order]);
+#else
 		area = &(zone->free_area[current_order]);
+#endif
 		fallback_mt = find_suitable_fallback(area, current_order,
 				start_migratetype, false, &can_steal);
 		if (fallback_mt == -1)
@@ -2586,18 +2716,40 @@ __rmqueue_fallback(struct zone *zone, int order, int start_migratetype,
 
 		goto do_steal;
 	}
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    }
+#endif
 	return false;
 
 find_smallest:
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    for (flc = 0; flc < FREE_AREA_COUNTS; flc++) {
+        flc_tmp = ajust_flc(flc, order);
+#endif
 	for (current_order = order; current_order < MAX_ORDER;
 							current_order++) {
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+		area = &(zone->free_area[flc_tmp][current_order]);
+#else
 		area = &(zone->free_area[current_order]);
+#endif
 		fallback_mt = find_suitable_fallback(area, current_order,
 				start_migratetype, false, &can_steal);
 		if (fallback_mt != -1)
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+			goto do_steal;
+#else
 			break;
+#endif
 	}
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    }
+#endif
 
 	/*
 	 * This should not happen - we already found a suitable fallback
@@ -2704,6 +2856,15 @@ static int rmqueue_bulk(struct zone *zone, unsigned int order,
 		if (is_migrate_cma(get_pcppage_migratetype(page)))
 			__mod_zone_page_state(zone, NR_FREE_CMA_PAGES,
 					      -(1 << order));
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Hui.Fan@PSW.BSP.Kernel.MM, 2017-8-21
+ * Account free pages for MIGRATE_OPPO
+ */
+		if (is_migrate_oppo2(get_pcppage_migratetype(page)))
+			__mod_zone_page_state(zone, NR_FREE_OPPO2_PAGES,
+						  -(1 << order));
+#endif /* VENDOR_EDIT */
+
 	}
 
 	/*
@@ -2920,6 +3081,10 @@ void mark_free_pages(struct zone *zone)
 	unsigned long flags;
 	unsigned int order, t;
 	struct page *page;
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    unsigned int flc;
+#endif
 
 	if (zone_is_empty(zone))
 		return;
@@ -2944,8 +3109,15 @@ void mark_free_pages(struct zone *zone)
 		}
 
 	for_each_migratetype_order(order, t) {
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+        for (flc = 0; flc < FREE_AREA_COUNTS; flc++) {
+		    list_for_each_entry(page,
+				    &zone->free_areai[flc][order].free_list[t], lru) {
+#else
 		list_for_each_entry(page,
 				&zone->free_area[order].free_list[t], lru) {
+#endif
 			unsigned long i;
 
 			pfn = page_to_pfn(page);
@@ -2957,6 +3129,10 @@ void mark_free_pages(struct zone *zone)
 				swsusp_set_page_free(pfn_to_page(pfn + i));
 			}
 		}
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    }
+#endif
 	}
 	spin_unlock_irqrestore(&zone->lock, flags);
 }
@@ -3087,6 +3263,10 @@ int __isolate_free_page(struct page *page, unsigned int order)
 	unsigned long watermark;
 	struct zone *zone;
 	int mt;
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    unsigned int flc;
+#endif
 
 	BUG_ON(!PageBuddy(page));
 
@@ -3109,7 +3289,14 @@ int __isolate_free_page(struct page *page, unsigned int order)
 
 	/* Remove page from free list */
 	list_del(&page->lru);
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    flc = page_to_flc(page);
+	zone->free_area[flc][order].nr_free--;
+#else
 	zone->free_area[order].nr_free--;
+#endif
+
 	rmv_page_order(page);
 
 	/*
@@ -3121,6 +3308,12 @@ int __isolate_free_page(struct page *page, unsigned int order)
 		for (; page < endpage; page += pageblock_nr_pages) {
 			int mt = get_pageblock_migratetype(page);
 			if (!is_migrate_isolate(mt) && !is_migrate_cma(mt)
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Shiming.Zhang@PSW.BSP.Kernel.MM, 2017-11-15
+ * could not steal MIGRATE_OPPO
+ */
+			    && !is_migrate_oppo2(mt)
+#endif /*VENDOR_EDIT*/
 			    && !is_migrate_highatomic(mt))
 				set_pageblock_migratetype(page,
 							  MIGRATE_MOVABLE);
@@ -3256,9 +3449,24 @@ struct page *rmqueue(struct zone *preferred_zone,
 				gfp_flags & __GFP_CMA)
 			page = __rmqueue_cma(zone, order);
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Hui.Fan@PSW.BSP.Kernel.MM, 2017-8-21
+ * Order-2 allocation use MIGRATE_OPPO first
+ */
+		if (!page && is_oppo2_order(order))
+			page = __rmqueue_smallest(zone, order, MIGRATE_OPPO2);
+#endif /* VENDOR_EDIT */
+
 		if (!page)
 			page = __rmqueue(zone, order, migratetype, alloc_flags);
 	} while (page && check_new_pages(page, order));
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Shiming.Zhang@PSW.BSP.Kernel.MM, 2017-11-15
+ * order-2 allocate from MIGRATE_HIGHATOMIC instead of fail
+ */
+			if (!page && is_oppo2_order(order))
+				page = __rmqueue_smallest(zone, order, MIGRATE_HIGHATOMIC);
+#endif /* VENDOR_EDIT */
 
 	spin_unlock(&zone->lock);
 	if (!page)
@@ -3376,6 +3584,10 @@ bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
 	long min = mark;
 	int o;
 	const bool alloc_harder = (alloc_flags & (ALLOC_HARDER|ALLOC_OOM));
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    int flc;
+#endif
 
 	/* free_pages may go negative - that's OK */
 	free_pages -= (1 << order) - 1;
@@ -3400,7 +3612,17 @@ bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
 		if (alloc_flags & ALLOC_OOM)
 			min -= min / 2;
 		else
-			min -= min / 4;
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_ZRAM_OPT)
+/* Shiming.Zhang@PSW.BSP.Kernel.MM, 2017-11-15
+ * ALLOC_HIGH:ALLOC_HARDER is about 1:10, so more for ALLOC_HARDER
+ * and since 2-order might allocate from MIGRATE_HIGHATOMIC as fallback,
+ * so here should make it easier for ALLOC_HARDER.
+ * after this change, kswapd might reclaim a bit more, which is what we want.
+ */
+                       min -= min / 4 + min / 8;
+#else
+                        min -= min / 4;
+#endif /*VENDOR_EDIT*/
 	}
 
 
@@ -3409,6 +3631,13 @@ bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
 	if (!(alloc_flags & ALLOC_CMA))
 		free_pages -= zone_page_state(z, NR_FREE_CMA_PAGES);
 #endif
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Hui.Fan@PSW.BSP.Kernel.MM, 2017-8-21
+ * Not OPPO2_ORDER allocation cannot use MIGRATE_OPPO
+ */
+		if (!is_oppo2_order(order))
+			free_pages -= zone_page_state(z, NR_FREE_OPPO2_PAGES);
+#endif /* VENDOR_EDIT */
 
 	/*
 	 * Check watermarks for an order-0 allocation request. If these
@@ -3423,12 +3652,28 @@ bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
 		return true;
 
 	/* For a high-order request, check at least one suitable page is free */
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    for (flc = 0; flc < FREE_AREA_COUNTS; flc++) {
+#endif
 	for (o = order; o < MAX_ORDER; o++) {
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+		struct free_area *area = &z->free_area[flc][o];
+#else
 		struct free_area *area = &z->free_area[o];
+#endif
 		int mt;
 
 		if (!area->nr_free)
 			continue;
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Hui.Fan@PSW.BSP.Kernel.MM, 2017-8-21
+ * If MIGRATE_OPPO not empty, return true
+ */
+		if (is_oppo2_order(order) && !list_empty(&area->free_list[MIGRATE_OPPO2]))
+				return true;
+#endif /* VENDOR_EDIT */
 
 		for (mt = 0; mt < MIGRATE_PCPTYPES; mt++) {
 #ifdef CONFIG_CMA
@@ -3442,6 +3687,13 @@ bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
 			if (!list_empty(&area->free_list[mt]))
 				return true;
 		}
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Shiming.Zhang@PSW.BSP.Kernel.MM, 2017-11-15
+ * OPPO2_ORDER could allocate from MIGRATE_HIGHATOMIC as last resert
+ */
+			if (is_oppo2_order(order) && !list_empty(&area->free_list[MIGRATE_HIGHATOMIC]))
+				return true;
+#endif /* VENDOR_EDIT */
 
 #ifdef CONFIG_CMA
 		if ((alloc_flags & ALLOC_CMA) &&
@@ -3453,6 +3705,10 @@ bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
 			!list_empty(&area->free_list[MIGRATE_HIGHATOMIC]))
 			return true;
 	}
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    }
+#endif
 	return false;
 }
 
@@ -4466,13 +4722,23 @@ __alloc_pages_slowpath(gfp_t gfp_mask, unsigned int order,
 	int no_progress_loops;
 	unsigned int cpuset_mems_cookie;
 	int reserve_flags;
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEM_MONITOR)
+/* Huacai.Zhou@PSW.BSP.Kernel.MM, 2018-07-07, add alloc wait monitor support*/
+	unsigned long oppo_alloc_start = jiffies;
+#endif /*VENDOR_EDIT*/
 
 	/*
 	 * We also sanity check to catch abuse of atomic reserves being used by
 	 * callers that are not in atomic context.
 	 */
 	if (WARN_ON_ONCE((gfp_mask & (__GFP_ATOMIC|__GFP_DIRECT_RECLAIM)) ==
-				(__GFP_ATOMIC|__GFP_DIRECT_RECLAIM)))
+#ifdef VENDOR_EDIT
+/*Peifeng.Li@PSW.BSP.Kernel.MM, 2020-07-28, support to use high_atomic when zram in direct_reclaim*/
+				(__GFP_ATOMIC|__GFP_DIRECT_RECLAIM)) && 
+                !(gfp_mask & ___GFP_HIGH_ATOMIC_ZRAM))
+#else
+				(__GFP_ATOMIC|__GFP_DIRECT_RECLAIM))) 
+#endif
 		gfp_mask &= ~__GFP_ATOMIC;
 
 retry_cpuset:
@@ -4705,6 +4971,10 @@ fail:
 	warn_alloc(gfp_mask, ac->nodemask,
 			"page allocation failure: order:%u", order);
 got_pg:
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEM_MONITOR)
+/* Huacai.Zhou@PSW.BSP.Kernel.MM, 2018-07-07, add alloc wait monitor support*/
+	memory_alloc_monitor(gfp_mask, order, jiffies_to_msecs(jiffies - oppo_alloc_start));
+#endif /*VENDOR_EDIT*/
 	return page;
 }
 
@@ -5245,6 +5515,13 @@ static void show_migration_types(unsigned char type)
 #ifdef CONFIG_CMA
 		[MIGRATE_CMA]		= 'C',
 #endif
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Hui.Fan@PSW.BSP.Kernel.MM, 2017-8-21
+ * Add a migrate type to manage special page alloc/free
+ */
+		[MIGRATE_OPPO2]		= 'P',
+#endif /* VENDOR_EDIT */
+
 #ifdef CONFIG_MEMORY_ISOLATION
 		[MIGRATE_ISOLATE]	= 'I',
 #endif
@@ -5277,6 +5554,10 @@ void show_free_areas(unsigned int filter, nodemask_t *nodemask)
 	int cpu;
 	struct zone *zone;
 	pg_data_t *pgdat;
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    int flc = 0;
+#endif
 
 	for_each_populated_zone(zone) {
 		if (show_mem_node_skip(filter, zone_to_nid(zone), nodemask))
@@ -5422,7 +5703,12 @@ void show_free_areas(unsigned int filter, nodemask_t *nodemask)
 
 	for_each_populated_zone(zone) {
 		unsigned int order;
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+		unsigned long nr[FREE_AREA_COUNTS][MAX_ORDER], flags, total = 0;
+#else
 		unsigned long nr[MAX_ORDER], flags, total = 0;
+#endif
 		unsigned char types[MAX_ORDER];
 
 		if (show_mem_node_skip(filter, zone_to_nid(zone), nodemask))
@@ -5431,26 +5717,58 @@ void show_free_areas(unsigned int filter, nodemask_t *nodemask)
 		printk(KERN_CONT "%s: ", zone->name);
 
 		spin_lock_irqsave(&zone->lock, flags);
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+        for (flc = 0 ; flc < FREE_AREA_COUNTS; flc++) {
+#endif
 		for (order = 0; order < MAX_ORDER; order++) {
-			struct free_area *area = &zone->free_area[order];
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+        struct free_area *area = &zone->free_area[flc][order];
+#else
+        struct free_area *area = &zone->free_area[order];
+#endif
 			int type;
 
-			nr[order] = area->nr_free;
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+			nr[flc][order] = area->nr_free;
+			total += nr[flc][order] << order;
+#else
+                        nr[order] = area->nr_free;
 			total += nr[order] << order;
-
+#endif
 			types[order] = 0;
 			for (type = 0; type < MIGRATE_TYPES; type++) {
 				if (!list_empty(&area->free_list[type]))
 					types[order] |= 1 << type;
 			}
 		}
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+        }
+#endif
 		spin_unlock_irqrestore(&zone->lock, flags);
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+        for (flc = 0 ; flc < FREE_AREA_COUNTS; flc++) {
+#endif
 		for (order = 0; order < MAX_ORDER; order++) {
 			printk(KERN_CONT "%lu*%lukB ",
-			       nr[order], K(1UL) << order);
-			if (nr[order])
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+			       nr[flc][order], K(1UL) << order);
+			if (nr[flc][order])
+#else
+                               nr[order], K(1UL) << order);
+                        if (nr[order])
+#endif
 				show_migration_types(types[order]);
 		}
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+        }
+#endif
 		printk(KERN_CONT "= %lukB\n", K(total));
 	}
 
@@ -5966,10 +6284,22 @@ not_early:
 static void __meminit zone_init_free_lists(struct zone *zone)
 {
 	unsigned int order, t;
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    int flc;
+
+    for (flc = 0; flc < FREE_AREA_COUNTS; flc++) {
+        for_each_migratetype_order(order, t) {
+            INIT_LIST_HEAD(&zone->free_area[flc][order].free_list[t]);
+            zone->free_area[flc][order].nr_free = 0;
+        }
+    }
+#else
 	for_each_migratetype_order(order, t) {
 		INIT_LIST_HEAD(&zone->free_area[order].free_list[t]);
 		zone->free_area[order].nr_free = 0;
 	}
+#endif
 }
 
 #ifndef __HAVE_ARCH_MEMMAP_INIT
@@ -6754,6 +7084,11 @@ static void __init free_area_init_core(struct pglist_data *pgdat)
 		set_pageblock_order();
 		setup_usemap(pgdat, zone, zone_start_pfn, size);
 		init_currently_empty_zone(zone, zone_start_pfn, size);
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+	        ajust_zone_label(zone);
+#endif
+
 		memmap_init(size, nid, j, zone_start_pfn);
 	}
 }
@@ -7701,6 +8036,12 @@ static void __setup_per_zone_wmarks(void)
 					low + min;
 		zone->_watermark[WMARK_HIGH] = min_wmark_pages(zone) +
 					low + min * 2;
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Hui.Fan@PSW.BSP.Kernel.MM, 2017-8-21
+ * Setup MIGRATE_OPPO blocks for each zone
+ */
+		setup_zone_migrate_oppo(zone, MIGRATE_OPPO2);
+#endif /* VENDOR_EDIT */
 
 		spin_unlock_irqrestore(&zone->lock, flags);
 	}
@@ -8485,6 +8826,10 @@ __offline_isolated_pages(unsigned long start_pfn, unsigned long end_pfn)
 	unsigned int order, i;
 	unsigned long pfn;
 	unsigned long flags;
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+    unsigned int flc;
+#endif
 	/* find the first valid pfn */
 	for (pfn = start_pfn; pfn < end_pfn; pfn++)
 		if (pfn_valid(pfn))
@@ -8520,7 +8865,13 @@ __offline_isolated_pages(unsigned long start_pfn, unsigned long end_pfn)
 #endif
 		list_del(&page->lru);
 		rmv_page_order(page);
+#if defined(VENDOR_EDIT) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+//Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea
+        flc = page_to_flc(page);
+        zone->free_area[flc][order].nr_free--;
+#else
 		zone->free_area[order].nr_free--;
+#endif
 		for (i = 0; i < (1 << order); i++)
 			SetPageReserved((page+i));
 		pfn += (1 << order);

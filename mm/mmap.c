@@ -51,7 +51,6 @@
 #include <asm/cacheflush.h>
 #include <asm/tlb.h>
 #include <asm/mmu_context.h>
-
 #include "internal.h"
 
 #ifndef arch_mmap_check
@@ -242,6 +241,7 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
 
 	newbrk = PAGE_ALIGN(brk);
 	oldbrk = PAGE_ALIGN(mm->brk);
+
 	if (oldbrk == newbrk)
 		goto set_brk;
 
@@ -1008,6 +1008,19 @@ again:
 		}
 		else if (next)
 			vma_gap_update(next);
+#ifdef VNEDOR_EDIT
+		else {
+			/* Kui.Zhang@TEC.Kernel.Performance, 2019/03/13
+			 * reserve area top addr check
+			 */
+			if (BACKUP_ALLOC_FLAG(vma->vm_flags))
+				VM_WARN_ON(mm->reserve_highest_vm_end !=
+						vm_end_gap(vma));
+			else
+				VM_WARN_ON(mm->highest_vm_end !=
+						vm_end_gap(vma));
+		}
+#else
 		else {
 			/*
 			 * If remove_next == 2 we obviously can't
@@ -1030,6 +1043,7 @@ again:
 			 */
 			VM_WARN_ON(mm->highest_vm_end != vm_end_gap(vma));
 		}
+#endif
 	}
 	if (insert && file)
 		uprobe_mmap(insert);
@@ -1612,6 +1626,7 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 			vm_flags |= VM_NORESERVE;
 	}
 
+
 	addr = mmap_region(file, addr, len, vm_flags, pgoff, uf);
 	if (!IS_ERR_VALUE(addr) &&
 	    ((vm_flags & VM_LOCKED) ||
@@ -1661,7 +1676,6 @@ unsigned long ksys_mmap_pgoff(unsigned long addr, unsigned long len,
 	}
 
 	flags &= ~(MAP_EXECUTABLE | MAP_DENYWRITE);
-
 	retval = vm_mmap_pgoff(file, addr, len, prot, flags, pgoff);
 out_fput:
 	if (file)
@@ -1955,6 +1969,7 @@ unsigned long unmapped_area(struct vm_unmapped_area_info *info)
 	if (RB_EMPTY_ROOT(&mm->mm_rb))
 		goto check_highest;
 	vma = rb_entry(mm->mm_rb.rb_node, struct vm_area_struct, vm_rb);
+
 	if (vma->rb_subtree_gap < length)
 		goto check_highest;
 
@@ -2020,7 +2035,6 @@ found:
 
 	/* Adjust gap address to the desired alignment */
 	gap_start += (info->align_offset - gap_start) & info->align_mask;
-
 	VM_BUG_ON(gap_start + info->length > info->high_limit);
 	VM_BUG_ON(gap_start + info->length > gap_end);
 	return gap_start;
@@ -2276,7 +2290,6 @@ static struct vm_area_struct *__find_vma(struct mm_struct *mm,
 {
 	struct rb_node *rb_node;
 	struct vm_area_struct *vma = NULL;
-
 	rb_node = mm->mm_rb.rb_node;
 
 	while (rb_node) {
@@ -2693,7 +2706,6 @@ detach_vmas_to_be_unmapped(struct mm_struct *mm, struct vm_area_struct *vma,
 {
 	struct vm_area_struct **insertion_point;
 	struct vm_area_struct *tail_vma = NULL;
-
 	insertion_point = (prev ? &prev->vm_next : &mm->mmap);
 	vma->vm_prev = NULL;
 	do {
@@ -3195,6 +3207,7 @@ void exit_mmap(struct mm_struct *mm)
 	if (!vma)	/* Can happen if dup_mmap() received an OOM */
 		return;
 
+
 	lru_add_drain();
 	flush_cache_mm(mm);
 	tlb_gather_mmu(&tlb, mm, 0, -1);
@@ -3617,6 +3630,7 @@ static void vm_lock_mapping(struct mm_struct *mm, struct address_space *mapping)
  *
  * mm_take_all_locks() can fail if it's interrupted by signals.
  */
+
 int mm_take_all_locks(struct mm_struct *mm)
 {
 	struct vm_area_struct *vma;
@@ -3712,6 +3726,7 @@ void mm_drop_all_locks(struct mm_struct *mm)
 		if (vma->vm_file && vma->vm_file->f_mapping)
 			vm_unlock_mapping(vma->vm_file->f_mapping);
 	}
+
 
 	mutex_unlock(&mm_all_locks_mutex);
 }

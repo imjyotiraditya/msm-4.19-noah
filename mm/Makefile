@@ -106,3 +106,28 @@ obj-$(CONFIG_PERCPU_STATS) += percpu-stats.o
 obj-$(CONFIG_HMM) += hmm.o
 obj-$(CONFIG_MEMFD_CREATE) += memfd.o
 obj-$(CONFIG_PROCESS_RECLAIM)	+= process_reclaim.o
+
+#if defined(VENDOR_EDIT)
+#/* Kui.Zhang@TEC.Kernel.Performance, 2019-03-13, add new interface for process memory reclaim*/
+obj-$(CONFIG_PROCESS_RECLAIM_ENHANCE) += process_mm_reclaim.o
+#endif /*defined(VENDOR_EDIT)
+
+#if defined(VENDOR_EDIT)
+#/*Peifeng.Li@PSW.Kernel.BSP.Memory, 2020/04/22, multi-freearea*/
+obj-$(CONFIG_PHYSICAL_ANTI_FRAGMENTATION) += multi_freearea.o
+#endif
+
+#ifdef VENDOR_EDIT
+#Huacai.Zhou@Tech.Kernel.mm, 2020-03-20, add oppo memory isolate support
+obj-$(CONFIG_OPPO_MEMORY_ISOLATE) += oppo_memory_isolate/
+#endif /*VENDOR_EDIT*/
+
+#ifdef VENDOR_EDIT
+#/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-22,add multi kswapd support*/
+obj-$(CONFIG_OPPO_MULTI_KSWAPD) += oppo_multi_kswapd/
+#endif /*VENDOR_EDIT*/
+
+#ifdef VENDOR_EDIT
+#/* Jiheng.Xie@TECH.BSP.Kernel, 2019-12-11, add for slub debug*/
+obj-y += oppo_healthinfo/
+#endif /*VENDOR_EDIT*/

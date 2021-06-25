@@ -1119,9 +1119,17 @@ void __init setup_kmalloc_cache_index_table(void)
 
 static void __init new_kmalloc_cache(int idx, slab_flags_t flags)
 {
+#if defined(VENDOR_EDIT) && defined(CONFIG_SLABTRACE_DEBUG)
+//Bin.Xu@BSP.Kernel.Stability, 2020/5/11, add for slab_trace
+	kmalloc_caches[idx] = create_kmalloc_cache(kmalloc_info[idx].name,
+					kmalloc_info[idx].size, flags|SLAB_STORE_USER, 0,
+					kmalloc_info[idx].size);
+
+#else
 	kmalloc_caches[idx] = create_kmalloc_cache(kmalloc_info[idx].name,
 					kmalloc_info[idx].size, flags, 0,
 					kmalloc_info[idx].size);
+#endif /* VENDOR_EDIT */
 }
 
 /*

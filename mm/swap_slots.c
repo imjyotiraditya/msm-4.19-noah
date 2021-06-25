@@ -275,6 +275,7 @@ static int refill_swap_slots_cache(struct swap_slots_cache *cache)
 	return cache->nr;
 }
 
+int disable_swap_slot = 1;
 int free_swap_slot(swp_entry_t entry)
 {
 	struct swap_slots_cache *cache;
@@ -282,7 +283,7 @@ int free_swap_slot(swp_entry_t entry)
 
 	si = swp_swap_info(entry);
 	cache = raw_cpu_ptr(&swp_slots);
-	if ((si && !(si->flags & SWP_SYNCHRONOUS_IO)) &&
+	if (!disable_swap_slot && !(si->flags & SWP_SYNCHRONOUS_IO) &&
 				use_swap_slot_cache && cache->slots_ret) {
 		spin_lock_irq(&cache->free_lock);
 		/* Swap slots cache may be deactivated before acquiring lock */
