@@ -477,6 +477,10 @@ void bolero_clk_rsc_fs_gen_request(struct device *dev, bool enable)
 						   priv->fs_gen_seq[i],
 						   priv->fs_gen_seq[i + 1],
 						   priv->fs_gen_seq[i + 1]);
+//#ifdef ODM_HQ_EDIT
+//wangbin@PSW.MM.AudioDriver.AudioParams., 2020/06/03, add log for headset recogition
+				pr_err("TEST: enabled FS_GEN\n");
+//#endif /* ODM_HQ_EDIT */
 			}
 		}
 	} else {
@@ -494,6 +498,10 @@ void bolero_clk_rsc_fs_gen_request(struct device *dev, bool enable)
 					priv->fs_gen_seq[i + 1]);
 				regmap_update_bits(regmap, priv->fs_gen_seq[i],
 						priv->fs_gen_seq[i + 1], 0x0);
+//#ifdef ODM_HQ_EDIT
+//wangbin@PSW.MM.AudioDriver.AudioParams., 2020/06/03, add log for headset recogition
+				pr_err("TEST: disabled FS_GEN\n");
+//#endif /* ODM_HQ_EDIT */
 			}
 		}
 	}

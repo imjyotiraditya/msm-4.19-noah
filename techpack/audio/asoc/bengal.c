@@ -38,6 +38,10 @@
 #include "codecs/bolero/bolero-cdc.h"
 #include <dt-bindings/sound/audio-codec-port-types.h>
 #include "bengal-port-config.h"
+#ifdef VENDOR_EDIT
+//Feng.Zhou@Mutilmedia.AudioDriver, 2020/04/28, Add for auido bring up
+#include "codecs/sia81xx/sia81xx_aux_dev_if.h"
+#endif /* VENDOR_EDIT */
 
 #define DRV_NAME "bengal-asoc-snd"
 #define __CHIPSET__ "BENGAL "
@@ -63,7 +67,12 @@
 #define CODEC_EXT_CLK_RATE          9600000
 #define ADSP_STATE_READY_TIMEOUT_MS 3000
 #define DEV_NAME_STR_LEN            32
+#ifdef VENDOR_EDIT
+//qiantao@Mutilmedia.AudioDriver, 2020/06/23, modify for headset
+#define WCD_MBHC_HS_V_MAX           1700
+#else
 #define WCD_MBHC_HS_V_MAX           1600
+#endif
 #define ROULEUR_MBHC_HS_V_MAX       1700
 
 #define TDM_CHANNEL_MAX		8
@@ -566,14 +575,26 @@ static void *def_rouleur_mbhc_cal(void);
 static struct wcd_mbhc_config wcd_mbhc_cfg = {
 	.read_fw_bin = false,
 	.calibration = NULL,
+	#ifdef VENDOR_EDIT
+//qiantao@Mutilmedia.AudioDriver, 2020/06/23, modify for headset
+	.detect_extn_cable = false,
+	#else
 	.detect_extn_cable = true,
+	#endif
 	.mono_stero_detection = false,
 	.swap_gnd_mic = NULL,
 	.hs_ext_micbias = true,
 	.key_code[0] = KEY_MEDIA,
+	#ifdef VENDOR_EDIT
+//qiantao@Mutilmedia.AudioDriver, 2020/06/23, modify for headset
+	.key_code[1] = KEY_VOLUMEUP,
+	.key_code[2] = KEY_VOLUMEDOWN,
+	.key_code[3] = 0,
+	#else
 	.key_code[1] = KEY_VOICECOMMAND,
 	.key_code[2] = KEY_VOLUMEUP,
 	.key_code[3] = KEY_VOLUMEDOWN,
+	#endif
 	.key_code[4] = 0,
 	.key_code[5] = 0,
 	.key_code[6] = 0,
@@ -4383,7 +4404,17 @@ static void *def_wcd_mbhc_cal(void)
 	btn_cfg = WCD_MBHC_CAL_BTN_DET_PTR(wcd_mbhc_cal);
 	btn_high = ((void *)&btn_cfg->_v_btn_low) +
 		(sizeof(btn_cfg->_v_btn_low[0]) * btn_cfg->num_btn);
-
+#ifdef VENDOR_EDIT
+//qiantao@Mutilmedia.AudioDriver, 2020/06/23, modify for headset
+	btn_high[0] = 112;
+	btn_high[1] = 237;
+	btn_high[2] = 438;
+	btn_high[3] = 438;
+	btn_high[4] = 438;
+	btn_high[5] = 438;
+	btn_high[6] = 438;
+	btn_high[7] = 438;
+#else
 	btn_high[0] = 75;
 	btn_high[1] = 150;
 	btn_high[2] = 237;
@@ -4392,7 +4423,7 @@ static void *def_wcd_mbhc_cal(void)
 	btn_high[5] = 500;
 	btn_high[6] = 500;
 	btn_high[7] = 500;
-
+#endif
 	return wcd_mbhc_cal;
 }
 
@@ -5053,6 +5084,24 @@ static struct snd_soc_dai_link msm_common_misc_fe_dai_links[] = {
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ops = &msm_cdc_dma_be_ops,
 	},
+	#ifdef VENDOR_EDIT
+	/*Jianfeng.Qiu@PSW.MM.AudioDriver.Machine, 2019/09/12, Add for headset mic loopback, add to the end*/
+	{/* TX_CDC_DMA_TX_4 */
+		.name = "TX4_CDC_DMA Hostless",
+		.stream_name = "TX4_CDC_DMA Hostless",
+		.cpu_dai_name = "TX4_CDC_DMA_HOSTLESS",
+		.platform_name = "msm-pcm-hostless",
+		.dynamic = 1,
+		.dpcm_playback = 1,
+		.dpcm_capture = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			    SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+	},
+	#endif /* VENDOR_EDIT */
 };
 
 static struct snd_soc_dai_link msm_common_be_dai_links[] = {
@@ -5952,6 +6001,8 @@ static const struct of_device_id bengal_asoc_machine_of_match[]  = {
 	{},
 };
 
+#ifndef VENDOR_EDIT
+//liujia@Mutilmedia.AudioDriver, 2020/07/18, modify for headset not recognited
 static int msm_snd_card_bengal_late_probe(struct snd_soc_card *card)
 {
 	struct snd_soc_component *component;
@@ -6008,6 +6059,8 @@ err_hs_detect:
 err_mbhc_cal:
 	return ret;
 }
+#endif
+
 static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 {
 	struct snd_soc_card *card = NULL;
@@ -6166,7 +6219,10 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 	if (card) {
 		card->dai_link = dailink;
 		card->num_links = total_links;
+#ifndef VENDOR_EDIT
+//liujia@Mutilmedia.AudioDriver, 2020/07/18, modify for headset not recognited
 		card->late_probe = msm_snd_card_bengal_late_probe;
+#endif
 	}
 
 	return card;
@@ -6177,6 +6233,10 @@ static int msm_aux_codec_init(struct snd_soc_component *component)
 	struct snd_soc_dapm_context *dapm =
 				snd_soc_component_get_dapm(component);
 	int ret = 0;
+#ifdef VENDOR_EDIT
+//liujia@Mutilmedia.AudioDriver, 2020/07/18, modify for headset not recognited
+	void *mbhc_calibration;
+#endif
 	struct snd_info_entry *entry;
 	struct snd_card *card = component->card->snd_card;
 	struct msm_asoc_mach_data *pdata;
@@ -6203,7 +6263,12 @@ static int msm_aux_codec_init(struct snd_soc_component *component)
 			dev_dbg(component->dev, "%s: Cannot create codecs module entry\n",
 				 __func__);
 			ret = 0;
+#ifdef VENDOR_EDIT
+//liujia@Mutilmedia.AudioDriver, 2020/07/18, modify for headset not recognited
+			goto mbhc_cfg_cal;
+#else
 			goto err;
+#endif
 		}
 		pdata->codec_root = entry;
 	}
@@ -6237,7 +6302,38 @@ static int msm_aux_codec_init(struct snd_soc_component *component)
 			}
 		}
 	}
+
+#ifdef VENDOR_EDIT
+//liujia@Mutilmedia.AudioDriver, 2020/07/18, modify for headset not recognited
+mbhc_cfg_cal:
+        if (data != NULL) {
+		if (!strncmp(data, "wcd937x", sizeof("wcd937x"))) {
+			mbhc_calibration = def_wcd_mbhc_cal();
+			if (!mbhc_calibration)
+				return -ENOMEM;
+			wcd_mbhc_cfg.calibration = mbhc_calibration;
+			ret = wcd937x_mbhc_hs_detect(component, &wcd_mbhc_cfg);
+		} else if (!strncmp( data, "rouleur", sizeof("rouleur"))) {
+			mbhc_calibration = def_rouleur_mbhc_cal();
+			if (!mbhc_calibration)
+				return -ENOMEM;
+			wcd_mbhc_cfg.calibration = mbhc_calibration;
+			ret = rouleur_mbhc_hs_detect(component, &wcd_mbhc_cfg);
+		}
+	}
+
+	if (ret) {
+		dev_err(component->dev, "%s: mbhc hs detect failed, err:%d\n",
+			__func__, ret);
+		goto err_hs_detect;
+	}
+	return 0;
+
+err_hs_detect:
+	kfree(mbhc_calibration);
+#else
 err:
+#endif
 	return ret;
 }
 
@@ -6258,6 +6354,10 @@ static int msm_init_aux_dev(struct platform_device *pdev,
 	int found = 0;
 	int codecs_found = 0;
 	int ret = 0;
+	#ifdef VENDOR_EDIT
+	//Feng.Zhou@Mutilmedia.AudioDriver, 2020/04/28, Add for auido bring up
+	unsigned int sia8108_num = 0;
+	#endif /* VENDOR_EDIT */
 
 	/* Get maximum WSA device count for this platform */
 	ret = of_property_read_u32(pdev->dev.of_node,
@@ -6343,7 +6443,7 @@ static int msm_init_aux_dev(struct platform_device *pdev,
 			ret = -EINVAL;
 			goto err;
 		}
-		if (soc_find_component_locked(wsa_of_node, NULL)) {
+		if (soc_find_component(wsa_of_node, NULL)) {
 			/* WSA device registered with ALSA core */
 			wsa881x_dev_info[found].of_node = wsa_of_node;
 			wsa881x_dev_info[found].index = i;
@@ -6440,7 +6540,7 @@ codec_aux_dev:
 			ret = -EINVAL;
 			goto err;
 		}
-		if (soc_find_component_locked(aux_codec_of_node, NULL)) {
+		if (soc_find_component(aux_codec_of_node, NULL)) {
 			/* AUX codec registered with ALSA core */
 			aux_cdc_dev_info[codecs_found].of_node =
 						aux_codec_of_node;
@@ -6463,8 +6563,13 @@ aux_dev_register:
 	card->num_aux_devs = wsa_max_devs + codec_aux_dev_cnt;
 	card->num_configs = wsa_max_devs + codec_aux_dev_cnt;
 
+	#ifdef VENDOR_EDIT
+	//Feng.Zhou@Mutilmedia.AudioDriver, 2020/04/28, Add for auido bring up
+	sia8108_num = soc_sia81xx_get_aux_num(pdev);
+	#endif /* VENDOR_EDIT */
+
 	/* Alloc array of AUX devs struct */
-	msm_aux_dev = devm_kcalloc(&pdev->dev, card->num_aux_devs,
+	msm_aux_dev = devm_kcalloc(&pdev->dev, card->num_aux_devs + sia8108_num,
 				       sizeof(struct snd_soc_aux_dev),
 				       GFP_KERNEL);
 	if (!msm_aux_dev) {
@@ -6473,7 +6578,7 @@ aux_dev_register:
 	}
 
 	/* Alloc array of codec conf struct */
-	msm_codec_conf = devm_kcalloc(&pdev->dev, card->num_configs,
+	msm_codec_conf = devm_kcalloc(&pdev->dev, card->num_configs + sia8108_num,
 					  sizeof(struct snd_soc_codec_conf),
 					  GFP_KERNEL);
 	if (!msm_codec_conf) {
@@ -6524,6 +6629,12 @@ aux_dev_register:
 						NULL;
 		msm_codec_conf[wsa_max_devs + i].of_node =
 				aux_cdc_dev_info[i].of_node;
+	}
+	//Feng.Zhou@Mutilmedia.AudioDriver, 2020/04/28, Add for auido bring up
+	if(0 == soc_sia81xx_init(pdev, msm_aux_dev + i, sia8108_num,
+			msm_codec_conf + i, sia8108_num)) {
+		card->num_aux_devs += sia8108_num;
+		card->num_configs += sia8108_num;
 	}
 
 	card->codec_conf = msm_codec_conf;

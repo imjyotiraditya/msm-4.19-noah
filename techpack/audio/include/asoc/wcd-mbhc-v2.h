@@ -130,7 +130,12 @@ do {                                                    \
 				  SND_JACK_BTN_2 | SND_JACK_BTN_3 | \
 				  SND_JACK_BTN_4 | SND_JACK_BTN_5)
 #define OCP_ATTEMPT 20
+#ifdef VENDOR_EDIT
+//qiantao@Mutilmedia.AudioDriver, 2020/06/23, modify for headset
+#define HS_DETECT_PLUG_TIME_MS (5 * 1000)
+#else
 #define HS_DETECT_PLUG_TIME_MS (3 * 1000)
+#endif
 #define SPECIAL_HS_DETECT_TIME_MS (2 * 1000)
 #define MBHC_BUTTON_PRESS_THRESHOLD_MIN 250
 #define GND_MIC_SWAP_THRESHOLD 4
@@ -146,6 +151,13 @@ do {                                                    \
 #define WCD_MBHC_BTN_PRESS_COMPL_TIMEOUT_MS  50
 #define ANC_DETECT_RETRY_CNT 7
 #define WCD_MBHC_SPL_HS_CNT  1
+
+#ifdef VENDOR_EDIT
+/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet, 2020/04/12,
+ * add for hs key blocking for 1s after insterting */
+extern struct delayed_work hskey_block_work;
+extern bool g_hskey_block_flag;
+#endif /* VENDOR_EDIT */
 
 enum wcd_mbhc_detect_logic {
 	WCD_DETECTION_LEGACY,

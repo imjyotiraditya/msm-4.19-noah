@@ -388,6 +388,10 @@ int q6audio_get_port_index(u16 port_id)
 	default: return -EINVAL;
 	}
 }
+/*#ifdef ODM_HQ_EDIT*/
+/*Yin.Zhang@ODM_HQ.Multimidia.Audio, 2020/04/30, Add for sia81xx*/
+EXPORT_SYMBOL(q6audio_get_port_index);
+/*#endif*/
 
 int q6audio_get_port_id(u16 port_id)
 {

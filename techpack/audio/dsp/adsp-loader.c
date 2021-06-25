@@ -18,6 +18,7 @@
 #include <linux/slab.h>
 #include <soc/qcom/subsystem_restart.h>
 
+
 #define Q6_PIL_GET_DELAY_MS 100
 #define BOOT_CMD 1
 #define SSR_RESET_CMD 1
@@ -63,6 +64,9 @@ static void adsp_load_fw(struct work_struct *adsp_ldr_work)
 	int rc = 0;
 	u32 adsp_state;
 	const char *img_name;
+
+
+	pr_err("%s: call\n", __func__);
 
 	if (!pdev) {
 		dev_err(&pdev->dev, "%s: Platform device null\n", __func__);
@@ -132,6 +136,7 @@ load_adsp:
 				" %s: Private data get failed\n", __func__);
 				goto fail;
 			}
+
 			if (!priv->adsp_fw_name) {
 				dev_dbg(&pdev->dev, "%s: Load default ADSP\n",
 					__func__);
@@ -161,6 +166,7 @@ fail:
 
 static void adsp_loader_do(struct platform_device *pdev)
 {
+	pr_err("%s: call\n", __func__);
 	schedule_work(&adsp_ldr_work);
 }
 
@@ -211,16 +217,18 @@ static ssize_t adsp_boot_store(struct kobject *kobj,
 {
 	int boot = 0;
 
+	pr_err("%s: call\n", __func__);
+
 	if (sscanf(buf, "%du", &boot) != 1) {
 		pr_err("%s: failed to read boot info from string\n", __func__);
 		return -EINVAL;
 	}
 
 	if (boot == BOOT_CMD) {
-		pr_debug("%s: going to call adsp_loader_do\n", __func__);
+		pr_err("%s: going to call adsp_loader_do\n", __func__);
 		adsp_loader_do(adsp_private);
 	} else if (boot == IMAGE_UNLOAD_CMD) {
-		pr_debug("%s: going to call adsp_unloader\n", __func__);
+		pr_err("%s: going to call adsp_unloader\n", __func__);
 		adsp_loader_unload(adsp_private);
 	}
 	return count;
@@ -359,7 +367,7 @@ static int adsp_loader_probe(struct platform_device *pdev)
 					  &adsp_fuse_not_supported);
 		if (ret) {
 			dev_dbg(&pdev->dev,
-				"%s: adsp_fuse_not_supported prop not found %d\n",
+				"%s: adsp_fuse_not_supported prop not found",
 				__func__, ret);
 			goto wqueue;
 		}
@@ -456,7 +464,9 @@ static int adsp_loader_probe(struct platform_device *pdev)
 		}
 	}
 wqueue:
+	dev_err(&pdev->dev, "%s: go to wqueue\n", __func__);
 	INIT_WORK(&adsp_ldr_work, adsp_load_fw);
+	dev_err(&pdev->dev, "%s: adsp_load_fw finish\n", __func__);
 	if (adsp_fw_bit_values)
 		devm_kfree(&pdev->dev, adsp_fw_bit_values);
 	if (adsp_fw_name_array)
@@ -484,6 +494,7 @@ static struct platform_driver adsp_loader_driver = {
 
 static int __init adsp_loader_init(void)
 {
+	printk("adsp_loader_init start debug\n");
 	return platform_driver_register(&adsp_loader_driver);
 }
 module_init(adsp_loader_init);

@@ -26,6 +26,12 @@
 #include "wcd-mbhc-adc.h"
 #include <asoc/wcd-mbhc-v2-api.h>
 
+#ifdef VENDOR_EDIT
+/* Zhong.Wenjie@BSP.TP.Init, 2020/05/06, Add for notify touchpanel status */
+extern void switch_headset_state(int headset_state);
+#endif
+
+
 void wcd_mbhc_jack_report(struct wcd_mbhc *mbhc,
 			  struct snd_soc_jack *jack, int status, int mask)
 {
@@ -508,15 +514,6 @@ static void wcd_mbhc_set_and_turnoff_hph_padac(struct wcd_mbhc *mbhc)
 int wcd_mbhc_get_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
 			uint32_t *zr)
 {
-	int detection_type = -EINVAL;
-
-	WCD_MBHC_REG_READ(WCD_MBHC_MECH_DETECTION_TYPE, detection_type);
-	/* Call compute impedance only when accessory is inserted */
-	if (!detection_type) {
-		if (mbhc->mbhc_cb->compute_impedance)
-			mbhc->mbhc_cb->compute_impedance(mbhc,
-						&mbhc->zl, &mbhc->zr);
-	}
 	*zl = mbhc->zl;
 	*zr = mbhc->zr;
 
@@ -753,6 +750,10 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 				    WCD_MBHC_JACK_MASK);
 		wcd_mbhc_clr_and_turnon_hph_padac(mbhc);
 	}
+#ifdef VENDOR_EDIT
+/* Zhong.Wenjie@BSP.TP.Init, 2020/05/06, Add for notify touchpanel status */
+	switch_headset_state(insertion);
+#endif
 	pr_debug("%s: leave hph_status %x\n", __func__, mbhc->hph_status);
 }
 EXPORT_SYMBOL(wcd_mbhc_report_plug);
@@ -978,6 +979,14 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 			mbhc->mbhc_cb->enable_mb_source(mbhc, true);
 		mbhc->btn_press_intr = false;
 		mbhc->is_btn_press = false;
+		
+#ifdef VENDOR_EDIT
+		/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet, 2020/04/12,
+		 * add for hs key blocking for 1s after insterting */
+		g_hskey_block_flag = true;
+		schedule_delayed_work(&hskey_block_work, msecs_to_jiffies(1000));
+#endif /* VENDOR_EDIT */
+
 		if (mbhc->mbhc_fn)
 			mbhc->mbhc_fn->wcd_mbhc_detect_plug_type(mbhc);
 	} else if ((mbhc->current_plug != MBHC_PLUG_TYPE_NONE)
@@ -1051,6 +1060,11 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 				mbhc->mbhc_cb->mbhc_moisture_detect_en(mbhc,
 									false);
 		}
+#ifdef VENDOR_EDIT
+		/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet, 2020/04/12,
+		 * add for hs key blocking for 1s after insterting */
+		cancel_delayed_work_sync(&hskey_block_work);
+#endif /* VENDOR_EDIT */
 
 	} else if (!detection_type) {
 		/* Disable external voltage source to micbias if present */
@@ -1060,6 +1074,11 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_FSM_EN, 0);
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 0);
 		mbhc->extn_cable_hph_rem = false;
+#ifdef VENDOR_EDIT
+		/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet, 2020/04/12,
+		 * add for hs key blocking for 1s after insterting */
+		cancel_delayed_work_sync(&hskey_block_work);
+#endif /* VENDOR_EDIT */
 	}
 
 done:
@@ -1137,10 +1156,21 @@ static void wcd_btn_lpress_fn(struct work_struct *work)
 
 	WCD_MBHC_REG_READ(WCD_MBHC_BTN_RESULT, btn_result);
 	if (mbhc->current_plug == MBHC_PLUG_TYPE_HEADSET) {
+#ifdef VENDOR_EDIT
+		/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet, 2020/04/12,
+		 * add for hs key blocking for 1s after insterting */
+		if (!g_hskey_block_flag) {
+			pr_debug("%s: Reporting long button press event, btn_result: %d\n",
+				 __func__, btn_result);
+			wcd_mbhc_jack_report(mbhc, &mbhc->button_jack,
+					mbhc->buttons_pressed, mbhc->buttons_pressed);
+		}
+#else /* VENDOR_EDIT */
 		pr_debug("%s: Reporting long button press event, btn_result: %d\n",
 			 __func__, btn_result);
 		wcd_mbhc_jack_report(mbhc, &mbhc->button_jack,
 				mbhc->buttons_pressed, mbhc->buttons_pressed);
+#endif /* VENDOR_EDIT */
 	}
 	pr_debug("%s: leave\n", __func__);
 	mbhc->mbhc_cb->lock_sleep(mbhc, false);
@@ -1258,13 +1288,39 @@ static irqreturn_t wcd_mbhc_release_handler(int irq, void *data)
 		if (ret == 0) {
 			pr_debug("%s: Reporting long button release event\n",
 				 __func__);
+#ifdef VENDOR_EDIT
+			/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet, 2020/04/12,
+			 * add for hs key blocking for 1s after insterting */
+			if (!g_hskey_block_flag) {
+				wcd_mbhc_jack_report(mbhc, &mbhc->button_jack,
+						0, mbhc->buttons_pressed);
+			}
+#else /* VENDOR_EDIT */
 			wcd_mbhc_jack_report(mbhc, &mbhc->button_jack,
 					0, mbhc->buttons_pressed);
+#endif /* VENDOR_EDIT */
 		} else {
 			if (mbhc->in_swch_irq_handler) {
 				pr_debug("%s: Switch irq kicked in, ignore\n",
 					__func__);
 			} else {
+#ifdef VENDOR_EDIT
+				/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet, 2020/04/12,
+				 * add for hs key blocking for 1s after insterting */
+				if (!g_hskey_block_flag) {
+					pr_debug("%s: Reporting btn press\n",
+						 __func__);
+					wcd_mbhc_jack_report(mbhc,
+								 &mbhc->button_jack,
+								 mbhc->buttons_pressed,
+								 mbhc->buttons_pressed);
+					pr_debug("%s: Reporting btn release\n",
+						 __func__);
+					wcd_mbhc_jack_report(mbhc,
+							&mbhc->button_jack,
+							0, mbhc->buttons_pressed);
+				}
+#else /* VENDOR_EDIT */
 				pr_debug("%s: Reporting btn press\n",
 					 __func__);
 				wcd_mbhc_jack_report(mbhc,
@@ -1276,6 +1332,7 @@ static irqreturn_t wcd_mbhc_release_handler(int irq, void *data)
 				wcd_mbhc_jack_report(mbhc,
 						&mbhc->button_jack,
 						0, mbhc->buttons_pressed);
+#endif /* VENDOR_EDIT */
 			}
 		}
 		mbhc->buttons_pressed &= ~WCD_MBHC_JACK_BUTTON_MASK;

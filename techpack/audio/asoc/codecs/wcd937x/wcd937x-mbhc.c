@@ -20,7 +20,12 @@
 #include <asoc/wcd-mbhc-v2-api.h>
 #include "internal.h"
 
+#ifdef VENDOR_EDIT
+//liujia@Mutilmedia.AudioDriver, 2020/07/06, modify for headset
+#define WCD937X_ZDET_SUPPORTED          false
+#else
 #define WCD937X_ZDET_SUPPORTED          true
+#endif
 /* Z value defined in milliohm */
 #define WCD937X_ZDET_VAL_32             32000
 #define WCD937X_ZDET_VAL_400            400000
@@ -36,6 +41,11 @@
 #define WCD937X_MBHC_IS_SECOND_RAMP_REQUIRED(z) ((z > 400000) || (z < 32000))
 #define WCD937X_MBHC_ZDET_CONST         (86 * 16384)
 #define WCD937X_MBHC_MOISTURE_RREF      R_24_KOHM
+
+//#ifdef ODM_HQ_EDIT
+/*liujia@ODM_HQ.Multimidia.Auido.mbhc 2020/04/27 disable mbhc moisture*/
+static bool wcd937x_mbhc_moisture_en = false;
+//#endif /* ODM_HQ_EDIT */
 
 static struct wcd_mbhc_register
 	wcd_mbhc_registers[WCD_MBHC_REG_FUNC_MAX] = {
@@ -738,7 +748,12 @@ static void wcd937x_mbhc_moisture_config(struct wcd_mbhc *mbhc)
 	}
 
 	/* Do not enable moisture detection if jack type is NC */
-	if (!mbhc->hphl_swh) {
+//#ifdef ODM_HQ_EDIT
+	/*liujia@ODM_HQ.Multimidia.Auido.mbhc 2020/04/27 disable mbhc moisture*/
+	if (!mbhc->hphl_swh || !wcd937x_mbhc_moisture_en) {
+//#else
+	//if (!mbhc->hphl_swh) {
+//#endif
 		dev_dbg(component->dev, "%s: disable moisture detection for NC\n",
 			__func__);
 		snd_soc_component_update_bits(component, WCD937X_MBHC_NEW_CTL_2,
@@ -775,7 +790,12 @@ static bool wcd937x_mbhc_get_moisture_status(struct wcd_mbhc *mbhc)
 	}
 
 	/* Do not enable moisture detection if jack type is NC */
-	if (!mbhc->hphl_swh) {
+//#ifdef ODM_HQ_EDIT
+	/*liujia@ODM_HQ.Multimidia.Auido.mbhc 2020/04/27 disable mbhc moisture*/
+	if (!mbhc->hphl_swh || !wcd937x_mbhc_moisture_en) {
+//#else
+	//if (!mbhc->hphl_swh) {
+//#endif
 		dev_dbg(component->dev, "%s: disable moisture detection for NC\n",
 			__func__);
 		snd_soc_component_update_bits(component, WCD937X_MBHC_NEW_CTL_2,

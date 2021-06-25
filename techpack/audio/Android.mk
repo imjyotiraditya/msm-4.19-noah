@@ -65,3 +65,9 @@ ifeq ($(call is-board-platform-in-list, lito),true)
 $(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/wsa883x/Module.symvers)
 include $(MY_LOCAL_PATH)/asoc/codecs/wsa883x/Android.mk
 endif
+
+#Feng.Zhou@MM.AudioDriver,2020/04/28, Add for audio bring up
+ifeq ($(call is-board-platform-in-list,$(MSMSTEPPE) $(TRINKET) bengal),true)
+$(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/sia81xx/Module.symvers)
+include $(MY_LOCAL_PATH)/asoc/codecs/sia81xx/Android.mk
+endif

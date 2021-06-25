@@ -55,9 +55,6 @@ enum {
 	BOLERO_MACRO_EVT_BCS_CLK_OFF,
 	BOLERO_MACRO_EVT_SSR_GFMUX_UP,
 	BOLERO_MACRO_EVT_PRE_SSR_UP,
-	BOLERO_MACRO_EVT_RX_PA_GAIN_UPDATE,
-	BOLERO_MACRO_EVT_HPHL_HD2_ENABLE, /* Enable HD2 cfg for HPHL */
-	BOLERO_MACRO_EVT_HPHR_HD2_ENABLE, /* Enable HD2 cfg for HPHR */
 };
 
 enum {
@@ -104,7 +101,10 @@ typedef int (*rsc_clk_cb_t)(struct device *dev, u16 event);
 #if IS_ENABLED(CONFIG_SND_SOC_BOLERO)
 int bolero_register_res_clk(struct device *dev, rsc_clk_cb_t cb);
 void bolero_unregister_res_clk(struct device *dev);
+#ifdef VENDOR_EDIT
+//huangxiaoli@PSW.MM.AudioDriver.AudioParams., 2020/07/07, add for soundcard recogition
 bool bolero_is_va_macro_registered(struct device *dev);
+#endif /* VENDOR_EDIT */
 int bolero_register_macro(struct device *dev, u16 macro_id,
 			  struct macro_ops *ops);
 void bolero_unregister_macro(struct device *dev, u16 macro_id);
@@ -135,12 +135,13 @@ static inline int bolero_register_res_clk(struct device *dev, rsc_clk_cb_t cb)
 static inline void bolero_unregister_res_clk(struct device *dev)
 {
 }
-
+#ifdef VENDOR_EDIT
+//huangxiaoli@PSW.MM.AudioDriver.AudioParams., 2020/07/07, add for soundcard recogition
 static bool bolero_is_va_macro_registered(struct device *dev)
 {
 	return false;
 }
-
+#endif /* VENDOR_EDIT */
 static inline int bolero_register_macro(struct device *dev,
 					u16 macro_id,
 					struct macro_ops *ops)

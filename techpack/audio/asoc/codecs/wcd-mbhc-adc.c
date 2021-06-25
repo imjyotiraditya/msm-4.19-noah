@@ -622,6 +622,10 @@ static void wcd_mbhc_adc_detect_plug_type(struct wcd_mbhc *mbhc)
 	struct snd_soc_component *component = mbhc->component;
 
 	pr_debug("%s: enter\n", __func__);
+	#ifdef VENDOR_EDIT
+	// Ming.Liu@MM.Audiodriver.Machine, 2019/08/27, Modify for pop noise
+	msleep(400);
+	#endif /* VENDOR_EDIT */
 	WCD_MBHC_RSC_ASSERT_LOCKED(mbhc);
 
 	if (mbhc->mbhc_cb->hph_pull_down_ctrl)
@@ -675,6 +679,18 @@ static int wcd_mbhc_get_plug_from_adc(struct wcd_mbhc *mbhc, int adc_result)
 	return plug_type;
 }
 
+#ifdef VENDOR_EDIT
+/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet, 2020/04/12,
+ * add for hs key blocking for 1s after insterting */
+struct delayed_work hskey_block_work;
+bool g_hskey_block_flag = false;
+static void disable_hskey_block_callback(struct work_struct *work)
+{
+	pr_info("mbhc disable_hskey_block_callback:\n");
+	g_hskey_block_flag = false;
+}
+#endif /* VENDOR_EDIT */
+
 static void wcd_correct_swch_plug(struct work_struct *work)
 {
 	struct wcd_mbhc *mbhc;
@@ -682,10 +698,16 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 	enum wcd_mbhc_plug_type plug_type = MBHC_PLUG_TYPE_INVALID;
 	unsigned long timeout;
 	bool wrk_complete = false;
+	#ifndef VENDOR_EDIT
+	// liujia@MM.Audiodriver.Machine, 2020/07/04, Modify for disable cross connection
 	int pt_gnd_mic_swap_cnt = 0;
 	int no_gnd_mic_swap_cnt = 0;
+	#endif
 	bool is_pa_on = false, spl_hs = false, spl_hs_reported = false;
+	#ifndef VENDOR_EDIT
+	// liujia@MM.Audiodriver.Machine, 2020/07/04, Modify for disable cross connection
 	int ret = 0;
+	#endif
 	int spl_hs_count = 0;
 	int output_mv = 0;
 	int cross_conn;
@@ -802,6 +824,8 @@ correct_plug_type:
 			is_pa_on = mbhc->mbhc_cb->hph_pa_on_status(
 					mbhc->component);
 
+		#ifndef VENDOR_EDIT
+		// liujia@MM.Audiodriver.Machine, 2020/07/04, Modify for disable cross connection
 		if ((output_mv <= hs_threshold) &&
 		    (!is_pa_on)) {
 			/* Check for cross connection*/
@@ -855,6 +879,7 @@ correct_plug_type:
 				}
 			}
 		}
+		#endif
 
 		if (output_mv > hs_threshold) {
 			pr_debug("%s: cable is extension cable\n", __func__);
@@ -1196,5 +1221,12 @@ void wcd_mbhc_adc_init(struct wcd_mbhc *mbhc)
 	}
 	mbhc->mbhc_fn = &mbhc_fn;
 	INIT_WORK(&mbhc->correct_plug_swch, wcd_correct_swch_plug);
+	#ifdef VENDOR_EDIT
+	/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet, 2020/04/12,
+	 * add for hs key blocking for 1s after insterting */
+		INIT_DELAYED_WORK(&hskey_block_work, disable_hskey_block_callback);
+		g_hskey_block_flag = false;
+	#endif /* VENDOR_EDIT */
+
 }
 EXPORT_SYMBOL(wcd_mbhc_adc_init);

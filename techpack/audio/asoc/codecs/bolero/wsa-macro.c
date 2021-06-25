@@ -3141,12 +3141,14 @@ static int wsa_macro_probe(struct platform_device *pdev)
 	u8 bcl_pmic_params[3];
 	u32 is_used_wsa_swr_gpio = 1;
 	const char *is_used_wsa_swr_gpio_dt = "qcom,is-used-swr-gpio";
-
+	#ifdef VENDOR_EDIT
+	//huangxiaoli@PSW.MM.AudioDriver.AudioParams., 2020/07/07, add for soundcard recogition
 	if (!bolero_is_va_macro_registered(&pdev->dev)) {
 		dev_err(&pdev->dev,
-			"%s: va-macro not registered yet, defer\n", __func__);
+			"%s: va-macro not registered\n", __func__);
 		return -EPROBE_DEFER;
 	}
+	#endif /* VENDOR_EDIT */
 
 	wsa_priv = devm_kzalloc(&pdev->dev, sizeof(struct wsa_macro_priv),
 				GFP_KERNEL);
@@ -3231,7 +3233,6 @@ static int wsa_macro_probe(struct platform_device *pdev)
 	wsa_macro_init_ops(&ops, wsa_io_base);
 	ops.clk_id_req = wsa_priv->default_clk_id;
 	ops.default_clk_id = wsa_priv->default_clk_id;
-
 	ret = bolero_register_macro(&pdev->dev, WSA_MACRO, &ops);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "%s: register macro failed\n", __func__);

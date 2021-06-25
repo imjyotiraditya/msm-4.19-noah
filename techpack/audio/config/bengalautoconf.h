@@ -42,4 +42,7 @@
 #define CONFIG_TDM_DISABLE 1
 #define CONFIG_MI2S_DISABLE 1
 #define CONFIG_AUXPCM_DISABLE 1
+/* Feng.Zhou@MM.AudioDriver, 2020/04/28, Add for audio bring up */
+#define CONFIG_SND_SOC_SIA81XX 1
+//#endif
 #define CONFIG_DIGITAL_CDC_RSC_MGR 1

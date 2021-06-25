@@ -33,6 +33,11 @@
 
 #define ADSP_STATE_READY_TIMEOUT_MS 3000
 
+#ifdef VENDOR_EDIT
+/*Le.Li@PSW.MM.AudioDriver.ADSP, 2020/09/16, CR2778572, Modify to Check q6core avs state to be modules ready*/
+#define ADSP_MODULES_READY_AVS_STATE 5
+#endif /* VENDOR_EDIT */
+
 #define APR_ENOTREADY 10
 #define MEMPOOL_ID_MASK 0xFF
 #define MDF_MAP_TOKEN 0xF000
@@ -935,11 +940,44 @@ int32_t q6core_avcs_load_unload_modules(struct avcs_load_unload_modules_payload
 	size_t packet_size = 0,  payload_size = 0;
 	struct avcs_cmd_dynamic_modules *mod = NULL;
 	int num_modules;
+	#ifdef VENDOR_EDIT
+	/*Le.Li@PSW.MM.AudioDriver.ADSP, 2020/09/16, CR2778572, Modify to Check q6core avs state to be modules ready*/
+	unsigned long timeout;
+	#endif /* VENDOR_EDIT */
 
 	if (payload == NULL) {
-		pr_err("%s: payload is null\n", __func__);
+		pr_err("%s: payload is null\n");
 		return -EINVAL;
 	}
+
+	#ifdef VENDOR_EDIT
+	/*Le.Li@PSW.MM.AudioDriver.ADSP, 2020/09/16, CR2778572, Modify to Check q6core avs state to be modules ready*/
+	if ((q6core_lcl.avs_state != ADSP_MODULES_READY_AVS_STATE)
+		&& (preload_type == AVCS_LOAD_MODULES)) {
+		timeout = jiffies +
+			msecs_to_jiffies(ADSP_STATE_READY_TIMEOUT_MS);
+
+		do {
+			q6core_is_adsp_ready();
+			if (q6core_lcl.param == ADSP_MODULES_READY_AVS_STATE) {
+				pr_debug("%s: ADSP state up with all modules loaded\n",
+					 __func__);
+				break;
+			}
+
+			/*
+			 * ADSP will be coming up after boot up and AVS might
+			 * not be fully up with all modules when the control reaches here.
+			 * So, wait for 50msec before checking ADSP state again.
+			 */
+			msleep(50);
+		} while (time_after(timeout, jiffies));
+
+		if (q6core_lcl.param != ADSP_MODULES_READY_AVS_STATE)
+			pr_err("%s: all modules might be not loaded yet on ADSP\n",
+				__func__);
+	}
+	#endif /* VENDOR_EDIT */
 
 	mutex_lock(&(q6core_lcl.cmd_lock));
 	num_modules = payload->num_modules;
@@ -990,7 +1028,10 @@ int32_t q6core_avcs_load_unload_modules(struct avcs_load_unload_modules_payload
 	else
 		mod->hdr.opcode =  AVCS_CMD_UNLOAD_MODULES;
 
+	#ifdef VENDOR_EDIT
+	/*Le.Li@PSW.MM.AudioDriver.ADSP.2434874, 2020/09/16, CR2728242, Modify for Qcom CR to fix adsp ssr BT no sound issue*/
 	q6core_lcl.adsp_status = 0;
+	#endif /* VENDOR_EDIT */
 	q6core_lcl.avcs_module_resp_received = 0;
 	ret = apr_send_pkt(q6core_lcl.core_handle_q,
 		(uint32_t *)mod);
@@ -1951,7 +1992,12 @@ static int q6core_is_avs_up(int32_t *avs_state)
 		msleep(50);
 	} while (time_after(timeout, jiffies));
 
+	#ifndef VENDOR_EDIT
+	/*Le.Li@PSW.MM.AudioDriver.ADSP, 2020/09/16, CR2778572, Modify to Check q6core avs state to be modules ready*/
 	*avs_state = adsp_ready;
+	#else
+	*avs_state = q6core_lcl.param;
+	#endif /* VENDOR_EDIT */
 	pr_debug("%s: ADSP Audio is %s\n", __func__,
 	       adsp_ready ? "ready" : "not ready");
 
