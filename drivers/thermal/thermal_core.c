@@ -35,6 +35,12 @@ MODULE_LICENSE("GPL v2");
 
 #define THERMAL_MAX_ACTIVE	16
 
+#ifdef VENDOR_EDIT
+/* GuangYan.hong@BSP.POWER.Secure 2020/04/09, Add for print skin_therm temp */
+#define PRINT_SKIN_THERM_TEMP_BY_TIMES    10000
+struct delayed_work temp_work;
+#endif
+
 static DEFINE_IDA(thermal_tz_ida);
 static DEFINE_IDA(thermal_cdev_ida);
 
@@ -1620,6 +1626,27 @@ static struct notifier_block thermal_pm_nb = {
 	.notifier_call = thermal_pm_notify,
 };
 
+#ifdef VENDOR_EDIT
+/* GuangYan.hong@BSP.POWER 2020/04/09, Add for print skin_therm temp */
+static void get_skin_therm_work(struct work_struct *work)
+{
+    struct thermal_zone_device *skin_therm;
+	int ret, temp = 0;
+
+    char name[20] = "quiet-therm-usr";
+
+    skin_therm = thermal_zone_get_zone_by_name(name);
+	ret = thermal_zone_get_temp(skin_therm, &temp);
+
+    if (!IS_ERR(skin_therm))
+    {
+	    pr_err("%s: tz=%s, temp=%d\n", __func__, skin_therm->type, temp);
+    }
+	
+    schedule_delayed_work(&temp_work, msecs_to_jiffies(PRINT_SKIN_THERM_TEMP_BY_TIMES));
+}
+#endif
+
 static int __init thermal_init(void)
 {
 	int result;
@@ -1650,6 +1677,12 @@ static int __init thermal_init(void)
 	if (result)
 		pr_warn("Thermal: Can not register suspend notifier, return %d\n",
 			result);
+	
+#ifdef VENDOR_EDIT
+    /* GuangYan.hong@BSP.POWER.Secure 2020/04/09, Add for print skin_therm temp */
+    INIT_DELAYED_WORK(&temp_work, get_skin_therm_work);
+    schedule_delayed_work(&temp_work, msecs_to_jiffies(240000));
+#endif
 
 	return 0;
 
