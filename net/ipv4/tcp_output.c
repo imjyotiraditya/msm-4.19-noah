@@ -48,6 +48,12 @@
 static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
 			   int push_one, gfp_t gfp);
 
+//#ifdef VENDOR_EDIT
+//liu.wei@TECH.CN.KERNEL, 2019/12/05,
+//Add code for push detect function
+extern void oppo_app_monitor_update_app_info(struct sock *sk, const struct sk_buff *skb, int send, int retrans);
+//#endif /* VENDOR_EDIT */
+
 /* Account for new data that has been sent to the network. */
 static void tcp_event_new_data_sent(struct sock *sk, struct sk_buff *skb)
 {
@@ -1142,6 +1148,12 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	/* Cleanup our debris for IP stacks */
 	memset(skb->cb, 0, max(sizeof(struct inet_skb_parm),
 			       sizeof(struct inet6_skb_parm)));
+
+	//#ifdef VENDOR_EDIT
+	//liu.wei@TECH.CN.KERNEL, 2019/12/05,
+	//Add code for push detect function
+	oppo_app_monitor_update_app_info(sk, skb, 1, 0);
+	//#endif /* VENDOR_EDIT */
 
 	err = icsk->icsk_af_ops->queue_xmit(sk, skb, &inet->cork.fl);
 
@@ -2514,6 +2526,19 @@ void tcp_send_loss_probe(struct sock *sk)
 	if (tp->tlp_high_seq)
 		goto rearm_timer;
 
+#if VENDOR_EDIT
+	//Zhenjian Jiang@BSP.Kernel.Stability, 2019/02/01, add for fix tcp warn_on issue
+	/* Already in TCP_FIN_WAIT1, if there is nothing in write queue
+	* do not rearm the timers
+	*/
+	if (sk->sk_state == TCP_FIN_WAIT1 && !skb)
+		return;
+#endif
+
+	/* Retransmit last segment. */
+	if (WARN_ON(!skb))
+		goto rearm_timer;
+
 	if (skb_still_in_host_queue(sk, skb))
 		goto rearm_timer;
 
@@ -2929,6 +2954,12 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
 
 	if (likely(!err)) {
 		TCP_SKB_CB(skb)->sacked |= TCPCB_EVER_RETRANS;
+
+		//#ifdef VENDOR_EDIT
+		//liu.wei@TECH.CN.KERNEL, 2019/12/05,
+		//Add code for push detect function
+		oppo_app_monitor_update_app_info(sk, skb, 1, 1);
+		//#endif /* VENDOR_EDIT */
 		trace_tcp_retransmit_skb(sk, skb);
 	} else if (err != -EBUSY) {
 		NET_ADD_STATS(sock_net(sk), LINUX_MIB_TCPRETRANSFAIL, segs);
