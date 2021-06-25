@@ -349,17 +349,64 @@ int qg_get_battery_temp(struct qpnp_qg *chip, int *temp)
 {
 	int rc = 0;
 
+#ifdef VENDOR_EDIT
+/* wangchao@ODM.BSP.charge, 2020/2/21, Add for Batt_NTC ADC compensation */
+	int pre_result = 0 , result = 0;
+	int pre_voltage = 0, voltage = 0;
+#endif
+
+
+#ifndef VENDOR_EDIT
+/* wangchao@ODM.BSP.charge, 2020/2/18, While batt_NTC & batt_ID both invalid return -40C */
 	if (chip->battery_missing) {
 		*temp = 250;
 		return 0;
 	}
+#else
+	if (chip->batt_therm_chan == NULL) {
+		*temp = 250;
+		return 0;
+	}
+	if ((chip->battery_missing) && (!is_batt_id_valid(chip))) {
+		*temp = -400;
+		return 0;
+	}
+#endif
 
+#ifndef VENDOR_EDIT
+/* wangchao@ODM.BSP.charge, 2020/2/21, Add for Batt_NTC ADC compensation */
 	rc = iio_read_channel_processed(chip->batt_therm_chan, temp);
 	if (rc < 0) {
 		pr_err("Failed reading BAT_TEMP over ADC rc=%d\n", rc);
 		return rc;
 	}
 	pr_debug("batt_temp = %d\n", *temp);
+#else
+	rc = iio_read_channel_processed(chip->batt_therm_chan, &voltage);
+	if (rc < 0) {
+		pr_err("Failed reading BAT_TEMP over ADC rc=%d\n", rc);
+		return rc;
+	}
+
+	pre_voltage = voltage;
+	pre_voltage = div64_s64(pre_voltage, 1000);
+	rc = oppo_asic_vadc_map_voltage_temp(adcmap_batt_therm_asic,
+				 ARRAY_SIZE(adcmap_batt_therm_asic),
+				 pre_voltage, &pre_result);
+
+	if(g_oppo_qg_ibta < -6000000)
+		g_oppo_qg_ibta = -6000000;
+	if(g_oppo_qg_ibta > 6000000)
+		g_oppo_qg_ibta = 6000000;
+	voltage = voltage + g_oppo_qg_ibta * 6;
+	voltage = div64_s64(voltage, 1000);
+	rc = oppo_asic_vadc_map_voltage_temp(adcmap_batt_therm_asic,
+					 ARRAY_SIZE(adcmap_batt_therm_asic),
+					 voltage, &result);
+
+	*temp = result;
+	pr_err("v_temp = %d, ichg = %d, temp_before = %d, temp_after = %d\n",voltage, g_oppo_qg_ibta, pre_result, result);
+#endif
 
 	return 0;
 }

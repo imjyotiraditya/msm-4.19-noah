@@ -22,6 +22,7 @@
 #include <linux/pmic-voter.h>
 #include <linux/workqueue.h>
 #include "battery.h"
+/* mapenglong@ODM.BSP.charge, 2020/07/20, Remove for back to sync soda code*/
 
 #define DRV_MAJOR_VERSION	1
 #define DRV_MINOR_VERSION	0
@@ -1947,6 +1948,7 @@ int qcom_batt_init(struct charger_param *chg_param)
 {
 	struct pl_data *chip;
 	int rc = 0;
+	/* mapenglong@ODM.BSP.charge, 2020/07/20, Remove for back to sync soda code*/
 
 	if (!chg_param) {
 		pr_err("invalid charger parameter\n");
@@ -1965,7 +1967,9 @@ int qcom_batt_init(struct charger_param *chg_param)
 
 	qcom_batt_create_debugfs(chip);
 
+/* mapenglong@ODM.BSP.charge, 2020/07/20, Remove for back to sync soda code*/
 	chip->slave_pct = 50;
+
 	chip->chg_param = chg_param;
 	pl_config_init(chip, chg_param->smb_version);
 	chip->restricted_current = DEFAULT_RESTRICTED_CURRENT_UA;
