@@ -44,8 +44,29 @@
 #include "blk-mq-sched.h"
 #include "blk-rq-qos.h"
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_FG_IO_OPT)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-23,add foreground io opt*/
+#include "oppo_foreground_io_opt/oppo_foreground_io_opt.h"
+#endif /*VENDOR_EDIT*/
+
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+#include <soc/oppo/oppo_iomonitor.h>
+#endif
+//#include <linux/oppocfs/oppo_cfs_common.h>
+
 #ifdef CONFIG_DEBUG_FS
 struct dentry *blk_debugfs_root;
+#endif
+
+/* chenweijian@TECH.Storage.IOMonitor, add for statistical IO time-consuming distribution, 2020/02/18 */
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+extern void reqstats_record(struct request *req, unsigned int nr_bytes, int fg);
+#endif
+/* VENDOR_EDIT */
+/* geshifei@TECH.Storage.IOMonitor, add for record io history, 2020/03/11 */
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+struct io_history io_queue_history[IO_HISTORY_DEPTH];
+unsigned char io_queue_index = 0;
 #endif
 
 EXPORT_TRACEPOINT_SYMBOL_GPL(block_bio_remap);
@@ -188,6 +209,10 @@ void blk_rq_init(struct request_queue *q, struct request *rq)
 	memset(rq, 0, sizeof(*rq));
 
 	INIT_LIST_HEAD(&rq->queuelist);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_FG_IO_OPT)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-23,add foreground io opt*/
+	INIT_LIST_HEAD(&rq->fg_list);
+#endif /*VENDOR_EDIT*/
 	INIT_LIST_HEAD(&rq->timeout_list);
 	rq->cpu = -1;
 	rq->q = q;
@@ -1014,6 +1039,10 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id,
 		return NULL;
 
 	INIT_LIST_HEAD(&q->queue_head);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_FG_IO_OPT)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-23,add foreground io opt*/
+	INIT_LIST_HEAD(&q->fg_head);
+#endif /*VENDOR_EDIT*/
 	q->last_merge = NULL;
 	q->end_sector = 0;
 	q->boundary_rq = NULL;
@@ -1039,7 +1068,10 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id,
 	q->backing_dev_info->capabilities = BDI_CAP_CGROUP_WRITEBACK;
 	q->backing_dev_info->name = "block";
 	q->node = node_id;
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_FG_IO_OPT)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-23,add foreground io opt*/
+	fg_bg_max_count_init(q);
+#endif /*VENDOR_EDIT*/
 	timer_setup(&q->backing_dev_info->laptop_mode_wb_timer,
 		    laptop_mode_timer_fn, 0);
 	timer_setup(&q->timeout, blk_rq_timed_out_timer, 0);
@@ -1472,7 +1504,14 @@ out:
 	 */
 	if (ioc_batching(q, ioc))
 		ioc->nr_batch_requests--;
-
+/* chenweijian@TECH.Storage.IOMonitor, add for statistical IO time-consuming distribution, 2020/02/18 */
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+		rq->req_tg = ktime_get();
+		rq->req_ti = ktime_set(0, 0);
+		rq->req_td = ktime_set(0, 0);
+		rq->req_tc = ktime_set(0, 0);
+#endif
+	/* VENDOR_EDIT */
 	trace_block_getrq(q, bio, op);
 	return rq;
 
@@ -1987,7 +2026,11 @@ void blk_init_request_from_bio(struct request *req, struct bio *bio)
 
 	if (bio->bi_opf & REQ_RAHEAD)
 		req->cmd_flags |= REQ_FAILFAST_MASK;
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_FG_IO_OPT)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-23,add foreground io opt*/
+	if (bio->bi_opf & REQ_FG)
+		req->cmd_flags |= REQ_FG;
+#endif /*VENDOR_EDIT*/
 	req->__sector = bio->bi_iter.bi_sector;
 	if (ioprio_valid(bio_prio(bio)))
 		req->ioprio = bio_prio(bio);
@@ -2564,9 +2607,15 @@ blk_qc_t submit_bio(struct bio *bio)
 
 		if (op_is_write(bio_op(bio))) {
 			count_vm_events(PGPGOUT, count);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+			pgpg_put_value(PGPGOUT,count);
+#endif
 		} else {
 			task_io_account_read(bio->bi_iter.bi_size);
 			count_vm_events(PGPGIN, count);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+			pgpg_put_value(PGPGIN,count);
+#endif
 		}
 
 		if (unlikely(block_dump)) {
@@ -2579,6 +2628,15 @@ blk_qc_t submit_bio(struct bio *bio)
 		}
 	}
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_FG_IO_OPT)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-23,add foreground io opt*/
+/*	if (test_task_ux(current))
+		bio->bi_opf |= REQ_UX;
+	else
+*/
+	if (high_prio_for_task(current))
+		bio->bi_opf |= REQ_FG;
+#endif /*VENDOR_EDIT*/
 	return generic_make_request(bio);
 }
 EXPORT_SYMBOL(submit_bio);
@@ -2834,6 +2892,19 @@ static struct request *elv_next_request(struct request_queue *q)
 	WARN_ON_ONCE(q->mq_ops);
 
 	while (1) {
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_FG_IO_OPT)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-23,add foreground io opt*/
+		if (likely(sysctl_fg_io_opt)
+#ifdef CONFIG_PM
+		    &&(q->rpm_status == RPM_ACTIVE)
+#endif
+		) {
+			rq = smart_peek_request(q);
+			if(rq)
+				return rq;
+		}
+		else {
+#endif /*VENDOR_EDIT*/
 		list_for_each_entry(rq, &q->queue_head, queuelist) {
 			if (blk_pm_allow_request(rq))
 				return rq;
@@ -2841,7 +2912,10 @@ static struct request *elv_next_request(struct request_queue *q)
 			if (rq->rq_flags & RQF_SOFTBARRIER)
 				break;
 		}
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_FG_IO_OPT)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-23,add foreground io opt*/
+		}
+#endif /*VENDDOR_EDIT*/
 		/*
 		 * Flush request is running and flush request isn't queueable
 		 * in the drive, we can hold the queue till flush request is
@@ -2905,6 +2979,13 @@ struct request *blk_peek_request(struct request_queue *q)
 			 * not be passed by new incoming requests
 			 */
 			rq->rq_flags |= RQF_STARTED;
+
+/* chenweijian@TECH.Storage.IOMonitor, add for statistical IO time-consuming distribution, 2020/02/18 */
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+			rq->req_td = ktime_get();
+#endif
+/* VENDOR_EDIT */
+
 			trace_block_rq_issue(q, rq);
 		}
 
@@ -2964,7 +3045,22 @@ struct request *blk_peek_request(struct request_queue *q)
 			break;
 		}
 	}
-
+/* geshifei@TECH.Storage.IOMonitor, add for record io history, 2020/03/11 */
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+		if (rq) {
+			if (rq->rq_disk) {
+				if (!strcmp(rq->rq_disk->disk_name, "sda")) {
+					io_queue_history[io_queue_index].cmd_flags= rq->cmd_flags;
+					io_queue_history[io_queue_index].jiffies = jiffies;
+	
+					io_queue_index++;
+					if (io_queue_index == 32) {
+						io_queue_index = 0;
+					}
+				}
+			}
+		}
+#endif
 	return rq;
 }
 EXPORT_SYMBOL(blk_peek_request);
@@ -2977,7 +3073,10 @@ static void blk_dequeue_request(struct request *rq)
 	BUG_ON(ELV_ON_HASH(rq));
 
 	list_del_init(&rq->queuelist);
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_FG_IO_OPT)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-23,add foreground io opt*/
+	list_del_init(&rq->fg_list);
+#endif /*VENDOR_EDIT*/
 	/*
 	 * the time frame between a request being removed from the lists
 	 * and to it is freed is accounted as io that is in progress at
@@ -3095,6 +3194,15 @@ bool blk_update_request(struct request *req, blk_status_t error,
 	int total_bytes;
 
 	trace_block_rq_complete(req, blk_status_to_errno(error), nr_bytes);
+
+/* chenweijian@TECH.Storage.IOMonitor, add for statistical IO time-consuming distribution, 2020/02/18 */
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+		req->req_tc = ktime_get();
+		if (nr_bytes && req->req_tg && req->req_td && req->req_tc) {
+			reqstats_record(req, nr_bytes, current_is_fg());
+		}
+#endif
+/* VENDOR_EDIT */
 
 	if (!req->bio)
 		return false;
