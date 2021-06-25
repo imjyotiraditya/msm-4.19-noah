@@ -68,9 +68,22 @@ obj-$(CONFIG_OKL4_USER_VIRQ)	+= okl4-virq.o
 obj-$(CONFIG_OKL4_RINGBUF)	+= okl4-ringbuf.o
 obj-$(CONFIG_TEST_IRQ_REQUESTER) += irq_requester.o
 
+#ifdef VENDOR_EDIT
+# Mengmeng.Wang@SRC.System, 2018/08/28, Add for oiface
+obj-y				+= schedx.o
+#endif
+
 obj-$(CONFIG_OKL4_USER_VIPC)    += okl4-vipc.o
 obj-$(CONFIG_OKL4_GUEST)        += okl4-panic.o
 obj-$(CONFIG_OKL4_LINK_SHBUF)    += okl4-link-shbuf.o
 obj-$(CONFIG_WIGIG_SENSING_SPI)	+= wigig_sensing.o
 obj-$(CONFIG_QTI_XR_SMRTVWR_MISC) += qxr-stdalonevwr.o
-obj-$(CONFIG_FPR_FPC)		+= fpr_FingerprintCard/
+#ifdef HQ_EDIT
+#fingerprint modify
+obj-$(CONFIG_FP_EGIS)		+= fpr_FingerprintCard/
+#endif
+
+#ifdef VENDOR_EDIT
+#Fuchun.Liao@BSP.CHG.Basic, 2018/11/06, Add for oppo rf cable monitor
+obj-$(CONFIG_OPPO_RF_CABLE_MONITOR)	+= oppo_rf_cable_monitor.o
+#endif
