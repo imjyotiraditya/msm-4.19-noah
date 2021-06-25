@@ -66,6 +66,7 @@ drop_nopreempt_cpus(struct cpumask *lowest_mask)
 	}
 }
 
+
 /**
  * cpupri_find - find the best (lowest-pri) CPU in the system
  * @cp: The cpupri context
@@ -87,7 +88,6 @@ int cpupri_find(struct cpupri *cp, struct task_struct *p,
 	int idx = 0;
 	int task_pri = convert_prio(p->prio);
 	bool drop_nopreempts = task_pri <= MAX_RT_PRIO;
-
 	BUG_ON(task_pri >= CPUPRI_NR_PRIORITIES);
 
 retry:

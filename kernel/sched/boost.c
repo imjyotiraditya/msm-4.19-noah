@@ -205,9 +205,17 @@ static void sched_boost_disable_all(void)
 	}
 }
 
+#ifdef VENDOR_EDIT
+extern int ghyp_boost;
+#endif
+
 static void _sched_set_boost(int type)
 {
+#ifdef VENDOR_EDIT
+	if (type == 0 && !ghyp_boost)
+#else
 	if (type == 0)
+#endif
 		sched_boost_disable_all();
 	else if (type > 0)
 		sched_boost_enable(type);
@@ -280,3 +288,12 @@ done:
 	mutex_unlock(&boost_mutex);
 	return ret;
 }
+
+#ifdef VENDOR_EDIT
+//qinyonghui@swdp. 2019/05.07. Migrate from sched.h to boost.c for hypnus
+int sched_boost(void)
+{
+	return sysctl_sched_boost;
+}
+#endif /* VENDOR_EDIT */
+

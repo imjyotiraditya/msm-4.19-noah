@@ -73,6 +73,7 @@
 
 #include "locking/rtmutex_common.h"
 
+
 /*
  * READ this before attempting to hack on futexes!
  *
@@ -1596,6 +1597,7 @@ futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset)
 	if (!hb_waiters_pending(hb))
 		goto out_put_key;
 
+
 	spin_lock(&hb->lock);
 
 	plist_for_each_entry_safe(this, next, &hb->chain, list) {
@@ -2687,7 +2689,6 @@ out:
 		put_futex_key(&q->key);
 	return ret;
 }
-
 static int futex_wait(u32 __user *uaddr, unsigned int flags, u32 val,
 		      ktime_t *abs_time, u32 bitset)
 {

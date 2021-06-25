@@ -8980,6 +8980,7 @@ static void perf_addr_filters_splice(struct perf_event *event,
  * @filter; if so, adjust filter's address range.
  * Called with mm::mmap_sem down for reading.
  */
+
 static unsigned long perf_addr_filter_apply(struct perf_addr_filter *filter,
 					    struct mm_struct *mm)
 {

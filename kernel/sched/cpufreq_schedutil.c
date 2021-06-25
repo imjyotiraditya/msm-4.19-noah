@@ -471,10 +471,21 @@ static bool sugov_iowait_reset(struct sugov_cpu *sg_cpu, u64 time,
  * To keep doubling, an IO boost has to be requested at least once per tick,
  * otherwise we restart from the utilization of the minimum OPP.
  */
+//#ifdef COLOROS_EDIT
+/*Tiren.Ma@ROM.Framework, 2020-01-19, add for super power save mode*/
+extern int super_power_save_mode;
+//#endif /*COLOROS_EDIT*/
 static void sugov_iowait_boost(struct sugov_cpu *sg_cpu, u64 time,
 			       unsigned int flags)
 {
 	bool set_iowait_boost = flags & SCHED_CPUFREQ_IOWAIT;
+
+	//#ifdef COLOROS_EDIT
+	/*Tiren.Ma@ROM.Framework, 2020-01-19, add for super power save mode*/
+	if (unlikely(super_power_save_mode)) {
+		set_iowait_boost = false;
+	}
+	//#endif /*COLOROS_EDIT*/
 
 	/* Reset boost if the CPU appears to have been idle enough */
 	if (sg_cpu->iowait_boost &&
@@ -1016,7 +1027,12 @@ static ssize_t pl_store(struct gov_attr_set *attr_set, const char *buf,
 	return count;
 }
 
+//xiaoqiang.he@oppo.com 2020-07-15, hypnus access mode
+#ifdef VENDOR_EDIT
+static struct governor_attr hispeed_load = __ATTR(hispeed_load, 0664, hispeed_load_show, hispeed_load_store);
+#else
 static struct governor_attr hispeed_load = __ATTR_RW(hispeed_load);
+#endif /* VENDOR_EDIT */
 static struct governor_attr hispeed_freq = __ATTR_RW(hispeed_freq);
 static struct governor_attr rtg_boost_freq = __ATTR_RW(rtg_boost_freq);
 static struct governor_attr pl = __ATTR_RW(pl);

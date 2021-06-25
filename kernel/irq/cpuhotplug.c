@@ -16,6 +16,11 @@
 
 #include "internals.h"
 
+#ifdef VENDOR_EDIT
+//LiYue@BSP.CHG.CHG, 2020/05/12, modified for replace daily build macro
+#include <soc/oppo/oppo_project.h>
+#endif /* VENDOR_EDIT */
+
 /* For !GENERIC_IRQ_EFFECTIVE_AFF_MASK this looks at general affinity mask */
 static inline bool irq_needs_fixup(struct irq_data *d)
 {
@@ -198,11 +203,20 @@ void irq_migrate_all_off_this_cpu(void)
 		raw_spin_lock(&desc->lock);
 		affinity_broken = migrate_one_irq(desc);
 		raw_spin_unlock(&desc->lock);
-
+#ifndef VENDOR_EDIT
+//LiYue@BSP.CHG.Basic, 2020/05/12, Add for delete log in release version
 		if (affinity_broken) {
 			pr_info_ratelimited("IRQ %u: no longer affine to CPU%u\n",
 					    irq, smp_processor_id());
 		}
+#else
+		if (get_eng_version() != RELEASE){
+			if (affinity_broken) {
+				pr_info_ratelimited("IRQ %u: no longer affine to CPU%u\n",
+						irq, smp_processor_id());
+			}
+		}
+#endif /*VENDOR_EDIT*/
 	}
 }
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2014-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  */
 
 #define pr_fmt(fmt)	"core_ctl: " fmt
@@ -65,8 +65,8 @@ static struct cluster_data cluster_state[MAX_CLUSTERS];
 static unsigned int num_clusters;
 
 #define for_each_cluster(cluster, idx) \
-	for (; (idx) < num_clusters && ((cluster) = &cluster_state[idx]);\
-		(idx)++)
+	for ((cluster) = &cluster_state[idx]; (idx) < num_clusters;\
+		(idx)++, (cluster) = &cluster_state[idx])
 
 static DEFINE_SPINLOCK(state_lock);
 static void apply_need(struct cluster_data *state);
@@ -122,6 +122,25 @@ static ssize_t show_max_cpus(const struct cluster_data *state, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%u\n", state->max_cpus);
 }
+
+#ifdef VENDOR_EDIT
+//cuixiaogang@SRC.hypnus, 2019.05.20 add for hypnus-daemon
+int hypnus_set_min_max_cpus(unsigned int index, unsigned int min, unsigned int max)
+{
+	struct cluster_data *state;
+
+	if (index >= num_clusters)
+		return -EINVAL;
+
+	state = &cluster_state[index];
+
+	state->max_cpus = min(max, state->num_cpus);
+	state->min_cpus = min(min, state->max_cpus);
+	cpuset_next(state);
+	wake_up_core_ctl_thread(state);
+	return 0;
+}
+#endif /* VENDOR_EDIT */
 
 static ssize_t store_offline_delay_ms(struct cluster_data *state,
 					const char *buf, size_t count)

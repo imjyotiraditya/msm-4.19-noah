@@ -852,6 +852,10 @@ struct timespec64 timespec64_add_safe(const struct timespec64 lhs,
 
 	return res;
 }
+/*#ifdef ODM_HQ_EDIT*/
+/*Yin.Zhang@ODM_HQ.Multimidia.Audio, 2020/04/30, Add for sia81xx*/
+EXPORT_SYMBOL(timespec64_add_safe);
+/*endif*/
 
 int get_timespec64(struct timespec64 *ts,
 		   const struct __kernel_timespec __user *uts)

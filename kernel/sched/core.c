@@ -25,6 +25,7 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
 
+
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
 #if defined(CONFIG_SCHED_DEBUG) && defined(CONFIG_JUMP_LABEL)
@@ -3493,6 +3494,7 @@ static inline void schedule_debug(struct task_struct *prev)
 	schedstat_inc(this_rq()->sched_count);
 }
 
+extern bool idle_top_rt_rq_enqueue(struct rt_rq *rt_rq);
 /*
  * Pick up the highest-prio task:
  */
@@ -3518,7 +3520,12 @@ pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 
 		/* Assumes fair_sched_class->next == idle_sched_class */
 		if (unlikely(!p))
+		{
+		    /* If there is rt tasks waiting, enqueue. */
+		    if (idle_top_rt_rq_enqueue(&rq->rt))
+		        goto again;
 			p = idle_sched_class.pick_next_task(rq, prev, rf);
+		}
 
 		return p;
 	}
@@ -3640,6 +3647,7 @@ static void __sched notrace __schedule(bool preempt)
 		}
 		switch_count = &prev->nvcsw;
 	}
+
 
 	next = pick_next_task(rq, prev, &rf);
 	clear_tsk_need_resched(prev);
@@ -7728,3 +7736,10 @@ void sched_exit(struct task_struct *p)
 #endif /* CONFIG_SCHED_WALT */
 
 __read_mostly bool sched_predl = 1;
+#ifdef VENDOR_EDIT
+/*fanhui@PhoneSW.BSP, 2016-06-23, get current task on one cpu*/
+struct task_struct *oppo_get_cpu_task(int cpu)
+{
+	return cpu_curr(cpu);
+}
+#endif

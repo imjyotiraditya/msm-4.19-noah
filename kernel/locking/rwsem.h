@@ -128,6 +128,7 @@ static inline bool rwsem_list_add_per_prio(struct rwsem_waiter *waiter_in,
 		return true;
 	}
 
+
 	if (waiter_in->task->prio < DEFAULT_PRIO
 		&& sem->m_count < RWSEM_MAX_PREEMPT_ALLOWED) {
 
