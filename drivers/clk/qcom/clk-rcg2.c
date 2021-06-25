@@ -480,12 +480,28 @@ static bool clk_rcg2_current_config(struct clk_rcg2 *rcg,
 	if (rcg->mnd_width) {
 		mask = BIT(rcg->mnd_width) - 1;
 		regmap_read(rcg->clkr.regmap, rcg->cmd_rcgr + M_REG, &cfg);
+#ifdef ODM_HQ_EDIT
+/* sunshiyue, 2020/05/12, add for fixing flashing */
+		if (!cfg && (f->m == f->n))
+			return true;
+		else if ((cfg & mask) != (f->m & mask))
+			return false;
+#else
 		if ((cfg & mask) != (f->m & mask))
 			return false;
+#endif
 
 		regmap_read(rcg->clkr.regmap, rcg->cmd_rcgr + N_REG, &cfg);
+#ifdef ODM_HQ_EDIT
+/* sunshiyue, 2020/05/12, add for fixing flashing */
+		if (!cfg && (f->m == f->n))
+			return true;
+		else if ((cfg & mask) != (~(f->n - f->m) & mask))
+			return false;
+#else
 		if ((cfg & mask) != (~(f->n - f->m) & mask))
 			return false;
+#endif
 	}
 
 	mask = (BIT(rcg->hid_width) - 1) | CFG_SRC_SEL_MASK;
@@ -1164,8 +1180,17 @@ static int clk_pixel_set_rate(struct clk_hw *hw, unsigned long rate,
 		f.m = frac->num;
 		f.n = frac->den;
 
+#ifdef ODM_HQ_EDIT
+/* sunshiyue, 2020/05/12, add for fixing flashing */
+		if (clk_rcg2_current_config(rcg, &f)) {
+			pr_err("clk_rcg2_current_config check\n");
+			return 0;
+		}
+		pr_err("clk_rcg2_configure called\n");
+#else
 		if (clk_rcg2_current_config(rcg, &f))
 			return 0;
+#endif
 		return clk_rcg2_configure(rcg, &f);
 	}
 	return -EINVAL;

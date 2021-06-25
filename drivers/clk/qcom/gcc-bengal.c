@@ -1433,6 +1433,7 @@ static struct clk_rcg2 gcc_pdm2_clk_src = {
 
 static const struct freq_tbl ftbl_gcc_qupv3_wrap0_s0_clk_src[] = {
 	F(7372800, P_GPLL0_OUT_AUX2, 1, 384, 15625),
+	F(8000000, P_GPLL0_OUT_AUX2, 3, 8, 100),
 	F(14745600, P_GPLL0_OUT_AUX2, 1, 768, 15625),
 	F(19200000, P_BI_TCXO, 1, 0, 0),
 	F(29491200, P_GPLL0_OUT_AUX2, 1, 1536, 15625),
