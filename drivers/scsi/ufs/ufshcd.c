@@ -50,7 +50,10 @@
 #include "ufs-sysfs.h"
 #include "ufs-debugfs.h"
 #include "ufs-qcom.h"
-
+#ifdef VENDOR_EDIT
+//zhenjian Jiang@PSW.BSP.Storage.UFS, 2018-05-04 add for ufs device in /proc/devinfo 
+#include <soc/oppo/device_info.h>
+#endif
 static bool ufshcd_wb_sup(struct ufs_hba *hba);
 static int ufshcd_wb_ctrl(struct ufs_hba *hba, bool enable);
 static int ufshcd_wb_buf_flush_enable(struct ufs_hba *hba);
@@ -2080,6 +2083,11 @@ static ssize_t ufshcd_clkscale_enable_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", hba->clk_scaling.is_allowed);
 }
 
+#ifdef VENDOR_EDIT
+//cuixiaogang@SRC.hypnus.2018.05.09. add mutex lock here for race condition
+static DEFINE_MUTEX(ufshcd_clkscale_lock);
+#endif /* VENDOR_EDIT */
+
 static ssize_t ufshcd_clkscale_enable_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -2091,6 +2099,10 @@ static ssize_t ufshcd_clkscale_enable_store(struct device *dev,
 		return -EINVAL;
 
 	value = !!value;
+#ifdef VENDOR_EDIT
+	//cuixiaogang@SRC.hypnus.2018.05.09. add mutex lock here for race condition
+	mutex_lock(&ufshcd_clkscale_lock);
+#endif /* VENDOR_EDIT */
 	if (value == hba->clk_scaling.is_allowed)
 		goto out;
 
@@ -2115,8 +2127,68 @@ static ssize_t ufshcd_clkscale_enable_store(struct device *dev,
 	ufshcd_release(hba, false);
 	pm_runtime_put_sync(hba->dev);
 out:
+#ifdef VENDOR_EDIT
+	//cuixiaogang@SRC.hypnus.2018.05.09. add mutex lock here for race condition
+	mutex_unlock(&ufshcd_clkscale_lock);
+#endif /* VENDOR_EDIT */
 	return count;
 }
+
+#ifdef VENDOR_EDIT
+//cuixiaogang@SRC.hypnus.2018.04.02. add support for ufs clk scale
+int ufshcd_clk_scaling_enable(struct ufs_hba *hba, int val)
+{
+	bool allowed = !!val;
+	int err;
+	unsigned long flags;
+
+	if (!hba)
+		return 0;
+
+	dev_dbg(hba->dev, "%s:clk scaling %d\n", __func__,
+			(int)allowed);
+	spin_lock_irqsave(hba->host->host_lock, flags);
+	if (hba->clk_gating.is_suspended ||
+			hba->is_sys_suspended || hba->ufshcd_state == UFSHCD_STATE_ERROR
+			|| hba->ufshcd_state == UFSHCD_STATE_RESET) {
+		spin_unlock_irqrestore(hba->host->host_lock, flags);
+		dev_info(hba->dev, "%s: forbid to set clk scaling %d %d %d\n",
+				__func__, hba->clk_gating.is_suspended,
+				hba->is_sys_suspended, hba->ufshcd_state);
+		return 0;
+	}
+	spin_unlock_irqrestore(hba->host->host_lock, flags);
+
+	mutex_lock(&ufshcd_clkscale_lock);
+	if (hba->clk_scaling.is_allowed == allowed)
+		goto out;
+
+	pm_runtime_get_sync(hba->dev);
+	ufshcd_hold(hba, false);
+
+	cancel_work_sync(&hba->clk_scaling.suspend_work);
+	cancel_work_sync(&hba->clk_scaling.resume_work);
+
+	hba->clk_scaling.is_allowed = allowed;
+
+	if (val) {
+		ufshcd_resume_clkscaling(hba);
+	} else {
+		ufshcd_suspend_clkscaling(hba);
+		err = ufshcd_devfreq_scale(hba, true);
+		if (err)
+			dev_err(hba->dev, "%s: failed to scale clocks up %d\n",
+					__func__, err);
+	}
+
+	ufshcd_release(hba, false);
+	pm_runtime_put_sync(hba->dev);
+out:
+	mutex_unlock(&ufshcd_clkscale_lock);
+	return 0;
+}
+EXPORT_SYMBOL(ufshcd_clk_scaling_enable);
+#endif
 
 static void ufshcd_clkscaling_init_sysfs(struct ufs_hba *hba)
 {
@@ -2230,12 +2302,14 @@ start:
 		 * work and to enable clocks.
 		 */
 	case CLKS_OFF:
-		ufshcd_scsi_block_requests(hba);
 		hba->clk_gating.state = REQ_CLKS_ON;
 		trace_ufshcd_clk_gating(dev_name(hba->dev),
 					hba->clk_gating.state);
-		queue_work(hba->clk_gating.clk_gating_workq,
-			   &hba->clk_gating.ungate_work);
+		if(queue_work(hba->clk_gating.clk_gating_workq,
+			&hba->clk_gating.ungate_work)) {
+			ufshcd_scsi_block_requests(hba);
+		}
+
 		/*
 		 * fall through to check if we should wait for this
 		 * work to be done or not.
@@ -4047,7 +4121,12 @@ static int ufshcd_exec_dev_cmd(struct ufs_hba *hba,
 {
 	struct ufshcd_lrb *lrbp;
 	int err;
+#ifdef VENDOR_EDIT
+//Bin.Xu@BSP.Kernel.Stability, 2020/5/23, add for Death-healer
+	int tag = 0;
+#else
 	int tag;
+#endif /* VENDOR_EDIT */
 	struct completion wait;
 	unsigned long flags;
 	bool has_read_lock = false;
@@ -5687,9 +5766,19 @@ static int ufshcd_complete_dev_init(struct ufs_hba *hba)
 	}
 
 	/* poll for max. 1000 iterations for fDeviceInit flag to clear */
+#ifndef VENDOR_EDIT
+//yh@BSP.Storage.UFS, 2019-12-27 add for ufs device can't complete init
 	for (i = 0; i < 1000 && !err && flag_res; i++)
+#else
+	for (i = 0; i < 1500 && !err && flag_res; i++) {
+#endif
 		err = ufshcd_query_flag_retry(hba, UPIU_QUERY_OPCODE_READ_FLAG,
 			QUERY_FLAG_IDN_FDEVICEINIT, &flag_res);
+#ifdef VENDOR_EDIT
+//yh@BSP.Storage.UFS, 2019-12-27 add for ufs device can't complete init
+		usleep_range(1000, 1000); // 1ms sleep
+	}
+#endif
 
 	if (err)
 		dev_err(hba->dev,
@@ -6162,6 +6251,9 @@ static int ufshcd_slave_alloc(struct scsi_device *sdev)
 	/* WRITE_SAME command is not supported*/
 	sdev->no_write_same = 1;
 
+	/* WRITE_SAME command is not supported */
+	sdev->no_write_same = 1;
+
 	ufshcd_set_queue_depth(sdev);
 
 	ufshcd_get_lu_power_on_wp_status(hba, sdev);
@@ -6515,7 +6607,22 @@ static void __ufshcd_transfer_req_compl(struct ufs_hba *hba,
 				ufshcd_vops_crypto_engine_cfg_end(hba,
 					lrbp, cmd->request);
 			}
+#if defined(VENDOR_EDIT) && defined(CONFIG_TRACEPOINTS)
+//yh@BSP.Storage.UFS, 2019-09-13 add for ufs io latency info calculate
+			if (trace_ufshcd_command_enabled())
+			{
+				struct request *req = cmd->request;
+				u_int64_t delta_us = ktime_us_delta(lrbp->compl_time_stamp, lrbp->issue_time_stamp);
 
+				if (req && bio_has_data(req->bio) && (delta_us > 5000))
+				{
+					trace_printk("ufs_io_latency:%06lld us, io_type:%s, LBA:%08x, size:%d\n",
+							delta_us, (rq_data_dir(req) == READ) ? "R" : "W",
+							(unsigned int)req->bio->bi_iter.bi_sector,
+							cpu_to_be32(cmd->sdb.length));
+				}
+			}
+#endif
 			/* Do not touch lrbp after scsi done */
 			cmd->scsi_done(cmd);
 		} else if (lrbp->command_type == UTP_CMD_TYPE_DEV_MANAGE ||
@@ -7408,7 +7515,20 @@ static void ufshcd_rls_handler(struct work_struct *work)
 	hba = container_of(work, struct ufs_hba, rls_work);
 
 	pm_runtime_get_sync(hba->dev);
+
+#ifndef VENDOR_EDIT
+//yh@BSP.Storage.UFS, 2020-1-7 add for fix dead lock between ufshcd_rls_handler/ufshcd_link_recovery
 	down_write(&hba->lock);
+#else
+	ret = down_write_trylock(&hba->lock);
+	if (0 == ret)//fail try lock
+	{
+		usleep_range(500000, 500000);//500ms
+		queue_work(hba->recovery_wq, &hba->rls_work);
+		pm_runtime_put_sync(hba->dev);
+		return;
+	}
+#endif
 	ufshcd_scsi_block_requests(hba);
 	if (ufshcd_is_shutdown_ongoing(hba))
 		goto out;
@@ -7754,7 +7874,12 @@ static int ufshcd_issue_tm_cmd(struct ufs_hba *hba, int lun_id, int task_id,
 	struct utp_upiu_task_req *task_req_upiup;
 	struct Scsi_Host *host;
 	unsigned long flags;
+#ifdef VENDOR_EDIT
+//Bin.Xu@BSP.Kernel.Stability, 2020/5/23, Added for Dealth_healer
+	int free_slot = 0;
+#else
 	int free_slot;
+#endif /* VENDOR_EDIT */
 	int err;
 	int task_tag;
 
@@ -8455,6 +8580,12 @@ static int ufshcd_scsi_add_wlus(struct ufs_hba *hba)
 	int ret = 0;
 	struct scsi_device *sdev_rpmb = NULL;
 	struct scsi_device *sdev_boot = NULL;
+#ifdef VENDOR_EDIT
+//yh@PSW.BSP.Storage.UFS, 2018-05-31 add for ufs device in /proc/devinfo
+	static char temp_version[5] = {0};
+	static char vendor[9] = {0};
+	static char model[17] = {0};
+#endif
 
 	hba->sdev_ufs_device = __scsi_add_device(hba->host, 0, 0,
 		ufshcd_upiu_wlun_to_scsi_wlun(UFS_UPIU_UFS_DEVICE_WLUN), NULL);
@@ -8464,6 +8595,14 @@ static int ufshcd_scsi_add_wlus(struct ufs_hba *hba)
 		goto out;
 	}
 	scsi_device_put(hba->sdev_ufs_device);
+#ifdef VENDOR_EDIT
+//yh@PSW.BSP.Storage.UFS, 2018-05-31 add for ufs device in /proc/devinfo
+	strncpy(temp_version, hba->sdev_ufs_device->rev, 4);
+	strncpy(vendor, hba->sdev_ufs_device->vendor, 8);
+	strncpy(model, hba->sdev_ufs_device->model, 16);
+	register_device_proc("ufs_version", temp_version, vendor);
+	register_device_proc("ufs", model, vendor);
+#endif
 
 	sdev_rpmb = __scsi_add_device(hba->host, 0, 0,
 		ufshcd_upiu_wlun_to_scsi_wlun(UFS_UPIU_RPMB_WLUN), NULL);
@@ -10633,6 +10772,10 @@ out:
 		hba->curr_dev_pwr_mode, hba->uic_link_state);
 	if (!ret)
 		hba->is_sys_suspended = true;
+#ifdef VENDOR_EDIT
+	//cuixiaogang@SRC.hypnus. 2018.09.13. add for ufs debug
+	dev_info(hba->dev, "%s:suspend done\n", __func__);
+#endif /* VENDOR_EDIT */
 	return ret;
 }
 EXPORT_SYMBOL(ufshcd_system_suspend);
@@ -10666,6 +10809,10 @@ out:
 		hba->curr_dev_pwr_mode, hba->uic_link_state);
 	if (!ret)
 		hba->is_sys_suspended = false;
+#ifdef VENDOR_EDIT
+	//cuixiaogang@SRC.hypnus. 2018.09.13. add for ufs debug
+	dev_info(hba->dev, "%s:resume done\n", __func__);
+#endif /* VENDOR_EDIT */
 	return ret;
 }
 EXPORT_SYMBOL(ufshcd_system_resume);
