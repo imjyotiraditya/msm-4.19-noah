@@ -40,6 +40,11 @@
 
 static DEFINE_IDA(mmc_host_ida);
 
+#ifdef VENDOR_EDIT
+//jie.cheng@swdp.shanghai, 2016-08-10 Add emmc scaling control api
+struct mmc_host* mmc_store_host[MAX_MMC_STORE_HOST];
+#endif /* VENDOR_EDIT */
+
 static void mmc_host_classdev_release(struct device *dev)
 {
 	struct mmc_host *host = cls_dev_to_mmc_host(dev);
@@ -401,7 +406,23 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 	host->index = err;
 
 	dev_set_name(&host->class_dev, "mmc%d", host->index);
-
+#ifdef VENDOR_EDIT
+//yh@bsp, 2015-10-21 Add for special card compatible
+        host->card_stuck_in_programing_status = false;
+#endif /* VENDOR_EDIT */
+#ifdef VENDOR_EDIT
+//Gavin.Lei@BSP.Storage.SDCard 2020-7-20 Add for abnormal SD card compatible
+	host->card_multiread_timeout_err_cnt = 0;
+	host->old_blk_rq_rd_pos = 0;
+    host->card_first_rd_timeout = false;
+    host->card_rd_timeout_start = 0;
+    host->card_is_rd_abnormal = false;
+	host->card_multiwrite_timeout_err_cnt = 0;
+	host->old_blk_rq_wr_pos = 0;
+    host->card_first_wr_timeout = false;
+    host->card_wr_timeout_start = 0;
+    host->card_is_wr_abnormal = false;
+#endif /* VENDOR_EDIT */
 	host->parent = dev;
 	host->class_dev.parent = dev;
 	host->class_dev.class = &mmc_host_class;
@@ -421,7 +442,10 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 	INIT_DELAYED_WORK(&host->detect, mmc_rescan);
 	INIT_DELAYED_WORK(&host->sdio_irq_work, sdio_irq_work);
 	timer_setup(&host->retune_timer, mmc_retune_timer, 0);
-
+#ifdef VENDOR_EDIT
+    //Lycan.Wang@Prd.BasicDrv, 2014-07-09 Add for retry 5 times when new sdcard init error
+    host->detect_change_retry = 5;
+#endif /* VENDOR_EDIT */
 	/*
 	 * By default, hosts do not support SGIO or large requests.
 	 * They have to set these according to their abilities.
@@ -485,6 +509,44 @@ static ssize_t enable_store(struct device *dev,
 
 	return count;
 }
+
+#ifdef VENDOR_EDIT
+//jie.cheng@swdp.shanghai, 2016-08-10 Add emmc scaling control api
+int mmc_scaling_enable(struct mmc_host* host, int value)
+{
+	mmc_get_card(host->card, NULL);
+
+#ifdef CONFIG_MMC_SDHCI
+	if (sdhci_check_pwr(host)) {
+		mmc_put_card(host->card, NULL);
+		return -EBUSY;
+	}
+#endif
+
+	if (!value) {
+		/*turning off clock scaling*/
+		mmc_exit_clk_scaling(host);
+		host->caps2 &= ~MMC_CAP2_CLK_SCALE;
+		host->clk_scaling.state = MMC_LOAD_HIGH;
+		/* Set to max. frequency when disabling */
+		mmc_clk_update_freq(host, host->card->clk_scaling_highest,
+				host->clk_scaling.state);
+		pr_debug("turn off mmc %d scaling\n", host->index);
+	} else if (value) {
+		/* starting clock scaling, will restart in case started */
+		host->caps2 |= MMC_CAP2_CLK_SCALE;
+		if (host->clk_scaling.enable)
+			mmc_exit_clk_scaling(host);
+		mmc_init_clk_scaling(host);
+		pr_debug("turn on mmc %d scaling\n", host->index);
+	}
+
+	mmc_put_card(host->card, NULL);
+
+	return 0;
+}
+EXPORT_SYMBOL(mmc_scaling_enable);
+#endif
 
 static ssize_t up_threshold_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -634,6 +696,13 @@ int mmc_add_host(struct mmc_host *host)
 	if (!(host->pm_flags & MMC_PM_IGNORE_PM_NOTIFY))
 		mmc_register_pm_notifier(host);
 
+#ifdef VENDOR_EDIT
+	//jie.cheng@swdp.shanghai, 2016-08-10 Add emmc scaling control api
+	if (host->index >= 0 && host->index < MAX_MMC_STORE_HOST) {
+		pr_debug("mmc_store_host index is %d\n", host->index);
+		mmc_store_host[host->index] = host;
+	}
+#endif
 	return 0;
 }
 

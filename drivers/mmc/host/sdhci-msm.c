@@ -2849,7 +2849,7 @@ static int sdhci_msm_vreg_enable(struct sdhci_msm_reg_data *vreg)
 
 	if (!vreg->is_enabled) {
 		/* Set voltage level */
-		ret = sdhci_msm_vreg_set_voltage(vreg, vreg->low_vol_level,
+		ret = sdhci_msm_vreg_set_voltage(vreg, vreg->high_vol_level,
 						vreg->high_vol_level);
 		if (ret)
 			return ret;
@@ -5433,6 +5433,7 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	}
 	msm_host_offset = msm_host->offset;
 	msm_host->sdhci_msm_pdata.ops = &sdhci_msm_ops;
+
 	host = sdhci_pltfm_init(pdev, &msm_host->sdhci_msm_pdata, 0);
 	if (IS_ERR(host)) {
 		ret = PTR_ERR(host);

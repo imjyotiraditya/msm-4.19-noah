@@ -695,6 +695,15 @@ static int mmc_devfreq_create_freq_table(struct mmc_host *host)
 		break;
 	}
 
+#ifdef VENDOR_EDIT
+/* 2020-10-13, Qcom patch to fix T-card frequence problem */
+	if (mmc_card_sd(host->card) && (clk_scaling->freq_table_sz < 2)) {
+		clk_scaling->freq_table[clk_scaling->freq_table_sz] =
+			host->card->clk_scaling_highest;
+		clk_scaling->freq_table_sz++;
+	}
+#endif
+
 out:
 	/**
 	 * devfreq requires unsigned long type freq_table while the
@@ -3699,7 +3708,11 @@ void mmc_stop_host(struct mmc_host *host)
 	}
 
 	host->rescan_disable = 1;
+#ifndef VENDOR_EDIT //yixue.ge@bsp.drv modify
 	cancel_delayed_work_sync(&host->detect);
+#else
+	cancel_delayed_work(&host->detect);
+#endif
 
 	/* clear pm flags now and let card drivers set them as needed */
 	host->pm_flags = 0;

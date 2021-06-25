@@ -28,6 +28,45 @@
 #include "mmc_ops.h"
 #include "sd.h"
 #include "sd_ops.h"
+#ifdef VENDOR_EDIT
+//Chunyi.Mei@PSW.BSP.Storage.Sdcard, 2018-12-10, Add for SD Card device information
+struct menfinfo {
+	unsigned int manfid;
+	char *manfstring;
+};
+
+struct menfinfo manufacturers[] = {
+	{0x41, "KINGSTONE"},
+	{0x1b, "SAMSUNG"},
+	{0x03, "SANDISK"},
+	{0x02, "TOSHIBA"}
+};
+#define MANFINFS_SIZE (sizeof(manufacturers)/sizeof(struct menfinfo))
+
+const char *string_class[] = {
+	"Class 0",
+	"Class 2",
+	"Class 4",
+	"Class 6",
+	"Class 10"
+};
+#define CLASS_TYPE_SIZE (sizeof(string_class)/sizeof(const char*))
+
+struct card_blk_data {
+	spinlock_t	lock;
+	struct gendisk	*disk;
+};
+
+#define STR_OTHER	"other"
+#define STR_UNKNOW	"unknown"
+#define STR_TYPE_SDXC	"SDXC"
+#define STR_TYPE_SDHC	"SDHC"
+#define STR_TYPE_SD	"SD"
+
+#define STR_SPEED_UHS	"ultra high speed "
+#define STR_SPEED_HS	"high speed "
+
+#endif /* VENDOR_EDIT */
 
 static const unsigned int tran_exp[] = {
 	10000,		100000,		1000000,	10000000,
@@ -94,6 +133,11 @@ void mmc_decode_cid(struct mmc_card *card)
 	card->cid.month			= UNSTUFF_BITS(resp, 8, 4);
 
 	card->cid.year += 2000; /* SD cards year offset */
+#ifdef VENDOR_EDIT
+//yh@PhoneSW.BSP, 2016-09-18, add print cid info for possible quick use
+	pr_info("name:%s,manfid:%x,oemid:%x\n", card->cid.prod_name, card->cid.manfid, card->cid.oemid);
+#endif
+
 }
 
 /*
@@ -268,6 +312,10 @@ static int mmc_read_ssr(struct mmc_card *card)
 			card->ssr.au = sd_au_size[au];
 			es = UNSTUFF_BITS(card->raw_ssr, 408 - 384, 16);
 			et = UNSTUFF_BITS(card->raw_ssr, 402 - 384, 6);
+#ifdef VENDOR_EDIT
+//Chunyi.Mei@PSW.BSP.Storage.Sdcard, 2018-12-10, Add for SD Card device information
+			card->ssr.speed_class = UNSTUFF_BITS(card->raw_ssr, 440 - 384, 8);
+#endif /* VENDOR_EDIT */
 			if (es && et) {
 				eo = UNSTUFF_BITS(card->raw_ssr, 400 - 384, 2);
 				card->ssr.erase_timeout = (et * 1000) / es;
@@ -750,6 +798,46 @@ out:
 	return err;
 }
 
+#ifdef VENDOR_EDIT
+//Chunyi.Mei@PSW.BSP.Storage.Sdcard, 2018-12-10, Add for SD Card device information
+const char *manfinfo_string(struct mmc_card *card) {
+	int i = 0;
+	for (i = 0; i < MANFINFS_SIZE ; i++) {
+		if(card->cid.manfid == manufacturers[i].manfid) {
+			return manufacturers[i].manfstring;
+		}
+	}
+	return STR_OTHER;
+}
+
+extern char *capacity_string(struct mmc_card *card);
+
+const char *type_string(struct mmc_card *card){
+	if(card==NULL || card->type!=MMC_TYPE_SD)
+		return STR_UNKNOW;
+	if (mmc_card_blockaddr(card)) {
+		if (mmc_card_ext_capacity(card))
+			return STR_TYPE_SDXC;
+		else
+			return STR_TYPE_SDHC;
+	}
+	return STR_TYPE_SD;
+}
+
+const char *uhs_string(struct mmc_card *card){
+	return mmc_card_uhs(card) ? STR_SPEED_UHS: (mmc_card_hs(card) ? STR_SPEED_HS : "");
+}
+
+const char *speed_class_string(struct mmc_card *card){
+	if(card->ssr.speed_class > (CLASS_TYPE_SIZE-1)){
+		return STR_UNKNOW;
+	}
+	return string_class[card->ssr.speed_class];
+}
+
+MMC_DEV_ATTR(devinfo, " manufacturer: %s\n size: %s\n type: %s\n speed: %s\n class: %s\n",
+	manfinfo_string(card), capacity_string(card), type_string(card), uhs_string(card), speed_class_string(card));
+#endif /* VENDOR_EDIT */
 MMC_DEV_ATTR(cid, "%08x%08x%08x%08x\n", card->raw_cid[0], card->raw_cid[1],
 	card->raw_cid[2], card->raw_cid[3]);
 MMC_DEV_ATTR(csd, "%08x%08x%08x%08x\n", card->raw_csd[0], card->raw_csd[1],
@@ -793,6 +881,10 @@ static ssize_t mmc_dsr_show(struct device *dev,
 static DEVICE_ATTR(dsr, S_IRUGO, mmc_dsr_show, NULL);
 
 static struct attribute *sd_std_attrs[] = {
+#ifdef VENDOR_EDIT
+//Chunyi.Mei@PSW.BSP.Storage.Sdcard, 2018-12-10, Add for SD Card device information
+	&dev_attr_devinfo.attr,
+#endif /* VENDOR_EDIT */
 	&dev_attr_cid.attr,
 	&dev_attr_csd.attr,
 	&dev_attr_scr.attr,
@@ -1480,9 +1572,18 @@ int mmc_attach_sd(struct mmc_host *host)
 {
 	int err;
 	u32 ocr, rocr;
-
+#ifdef VENDOR_EDIT
+	int retries;
+#endif
 	WARN_ON(!host->claimed);
 
+#ifdef VENDOR_EDIT
+    //Lycan.Wang@Prd.BasicDrv, 2014-07-10 Add for retry 5 times when new sdcard init error
+	if (!host->detect_change_retry) {
+        pr_err("%s have init error 5 times\n", __func__);
+        return -ETIMEDOUT;
+    }
+#endif /* VENDOR_EDIT */
 	err = mmc_send_app_op_cond(host, 0, &ocr);
 	if (err)
 		return err;
@@ -1521,6 +1622,15 @@ int mmc_attach_sd(struct mmc_host *host)
 	/*
 	 * Detect and init the card.
 	 */
+#ifndef VENDOR_EDIT
+    //Lycan.Wang@Prd.BasicDrv, 2014-07-10 Modify for init retry only once when have init error before
+    retries = 5;
+#else /* VENDOR_EDIT */
+    if (host->detect_change_retry < 5) 
+        retries = 1;
+    else
+        retries = 5;
+#endif /* VENDOR_EDIT */
 	err = mmc_sd_init_card(host, rocr, NULL);
 	if (err)
 		goto err;
@@ -1538,6 +1648,10 @@ int mmc_attach_sd(struct mmc_host *host)
 		goto remove_card;
 	}
 
+#ifdef VENDOR_EDIT
+    //Tong.han@Bsp.group.Tp, 2015-02-03 Add for retry 5 times when new sdcard init error
+    host->detect_change_retry = 5;
+#endif /* VENDOR_EDIT */
 	return 0;
 
 remove_card:
@@ -1547,6 +1661,12 @@ remove_card:
 err:
 	mmc_detach_bus(host);
 
+#ifdef VENDOR_EDIT
+    //Lycan.Wang@Prd.BasicDrv, 2014-07-10 Add for retry 5 times when new sdcard init error
+        if (err)//yh@bsp, 2016-03-17, this err could be caused by rescan disable, here reserve this aborted retry oppotunity.
+    host->detect_change_retry--;
+    pr_err("detect_change_retry = %d !!!,err = %d\n", host->detect_change_retry,err);
+#endif /* VENDOR_EDIT */
 	pr_err("%s: error %d whilst initialising SD card\n",
 		mmc_hostname(host), err);
 

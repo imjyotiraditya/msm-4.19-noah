@@ -80,5 +80,12 @@ static inline bool mmc_card_hs400es(struct mmc_card *card)
 	return card->host->ios.enhanced_strobe;
 }
 
+#ifdef VENDOR_EDIT
+#ifdef CONFIG_MMC_SDHCI
+//jie.cheng@swdp.shanghai, 2016-08-19 Add emmc scaling control api
+extern bool sdhci_check_pwr(struct mmc_host *mmc);
+#endif
+#endif
+
 #endif
 

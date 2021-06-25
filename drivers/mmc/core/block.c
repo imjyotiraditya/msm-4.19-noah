@@ -56,6 +56,10 @@
 #include "mmc_ops.h"
 #include "quirks.h"
 #include "sd_ops.h"
+#ifdef VENDOR_EDIT
+//xiaohua.tian@Prd6.BaseDrv.Sensor,2016/10/31, Add for eMMC and DDR device information
+#include <soc/oppo/device_info.h>
+#endif /* VENDOR_EDIT */
 
 MODULE_ALIAS("mmc:block");
 #ifdef MODULE_PARAM_PREFIX
@@ -135,6 +139,11 @@ struct mmc_blk_data {
 	/* debugfs files (only in main mmc_blk_data) */
 	struct dentry *status_dentry;
 	struct dentry *ext_csd_dentry;
+#ifdef VENDOR_EDIT
+//runyu.ouyang@BSP.Storage.EMMC, 2019-06-22 add for emmc lifetime
+	struct dentry *sector_count_dentry;
+	struct dentry *life_time_dentry;
+#endif
 };
 
 /* Device type for RPMB character devices */
@@ -469,7 +478,10 @@ static int card_busy_detect(struct mmc_card *card, unsigned int timeout_ms,
 	unsigned long timeout = jiffies + msecs_to_jiffies(timeout_ms);
 	int err = 0;
 	u32 status;
-
+#ifdef VENDOR_EDIT
+//yh@PhoneSW.BSP, 2017-1-17, send card changing to RO mode uevent to android layer
+	char *envp[2] = {"sdcard_ro=1", NULL};
+#endif /* VENDOR_EDIT */
 	do {
 		bool done = time_after(jiffies, timeout);
 
@@ -492,6 +504,17 @@ static int card_busy_detect(struct mmc_card *card, unsigned int timeout_ms,
 			dev_err(mmc_dev(card->host),
 				"Card stuck in wrong state! %s status: %#x\n",
 				 __func__, status);
+#ifdef VENDOR_EDIT
+//yh@PhoneSW.BSP, 2017-1-17, send card changing to RO mode uevent to android layer
+			kobject_uevent_env(
+					&(card->dev.kobj),
+					KOBJ_CHANGE, envp);
+#endif /* VENDOR_EDIT */
+#ifdef VENDOR_EDIT
+//yh@bsp, 2015-10-21 Add for special card compatible
+			card->host->card_stuck_in_programing_status = true;
+#endif /* VENDOR_EDIT */
+
 			return -ETIMEDOUT;
 		}
 
@@ -2146,6 +2169,58 @@ static void mmc_blk_mq_req_done(struct mmc_request *mrq)
 	/* Take the recovery path for errors or urgent background operations */
 	if (mmc_blk_rq_error(&mqrq->brq) ||
 	    mmc_blk_urgent_bkops_needed(mq, mqrq)) {
+#ifdef VENDOR_EDIT
+//Gavin.Lei@BSP.Storage.SDCard 2020-7-20 Add for abnormal SD card compatible
+		if ((-ETIMEDOUT == (&mqrq->brq)->data.error) && (mmc_card_sd(mq->card))) {
+			if ((rq_data_dir(req) == READ) && (host->old_blk_rq_rd_pos != blk_rq_pos(req))) {
+				host->old_blk_rq_rd_pos = blk_rq_pos(req);
+					if (!host->card_first_rd_timeout) {
+						host->card_first_rd_timeout = true;
+						host->card_rd_timeout_start = jiffies;
+						host->card_multiread_timeout_err_cnt = 0;
+					} else {
+						if (time_before_eq(jiffies, host->card_rd_timeout_start + msecs_to_jiffies(MMC_MULTIREAD_CNT_WINDOW_S * 1000))) {
+							if (host->card_multiread_timeout_err_cnt < MAX_MULTIREAD_TIMEOUT_ERR_CNT) {
+								host->card_multiread_timeout_err_cnt++;
+							} else {
+								host->card_is_rd_abnormal = true;
+							}
+						} else {
+							host->card_rd_timeout_start = jiffies;
+							host->card_multiread_timeout_err_cnt = 0;
+						}
+					}
+
+				pr_err("%s: read SD Card sector %u timeout, error count %#d\n",
+					req->rq_disk->disk_name, (unsigned)blk_rq_pos(req),
+					host->card_multiread_timeout_err_cnt);
+			}
+
+			if ((rq_data_dir(req) == WRITE) && (host->old_blk_rq_wr_pos != blk_rq_pos(req))) {
+				host->old_blk_rq_wr_pos = blk_rq_pos(req);
+				if (!host->card_first_wr_timeout) {
+					host->card_first_wr_timeout = true;
+					host->card_wr_timeout_start = jiffies;
+					host->card_multiwrite_timeout_err_cnt = 0;
+				}
+				else {
+						if (time_before_eq(jiffies, host->card_wr_timeout_start + msecs_to_jiffies(MMC_MULTIWRITE_CNT_WINDOW_S * 1000))) {
+							if (host->card_multiwrite_timeout_err_cnt < MAX_MULTIWRITE_TIMEOUT_ERR_CNT) {
+								host->card_multiwrite_timeout_err_cnt++;
+							} else {
+								host->card_is_wr_abnormal = true;
+							}
+						} else {
+							host->card_wr_timeout_start = jiffies;
+							host->card_multiwrite_timeout_err_cnt = 0;
+						}
+				}
+				pr_err("%s: write SD Card sector %u timeout, error count %#d\n",
+					req->rq_disk->disk_name, (unsigned)blk_rq_pos(req),
+					host->card_multiwrite_timeout_err_cnt);
+			}
+		}
+#endif /* VENDOR_EDIT */
 		spin_lock_irqsave(q->queue_lock, flags);
 		mq->recovery_needed = true;
 		mq->recovery_req = req;
@@ -2891,6 +2966,181 @@ static const struct file_operations mmc_dbg_ext_csd_fops = {
 	.llseek		= default_llseek,
 };
 
+#ifdef VENDOR_EDIT
+//runyu.ouyang@BSP.Storage.EMMC, 2019-06-22 add for emmc lifetime
+#define SECTOR_COUNT_BUF_LEN 16
+static int mmc_sector_count_open(struct inode *inode, struct file *filp)
+{
+	struct mmc_card *card = inode->i_private;
+	struct mmc_blk_data *md = dev_get_drvdata(&card->dev);
+	struct mmc_queue *mq = &md->queue;
+	struct request *req;
+	char *buf;
+	ssize_t n = 0;
+	u8 *ext_csd;
+	int err;
+    unsigned int sector_count = 0;
+    
+	buf = kmalloc(SECTOR_COUNT_BUF_LEN + 1, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	/* Ask the block layer for the EXT CSD */
+	req = blk_get_request(mq->queue, REQ_OP_DRV_IN, __GFP_RECLAIM);
+	if (IS_ERR(req)) {
+		err = PTR_ERR(req);
+		goto out_free;
+	}
+	req_to_mmc_queue_req(req)->drv_op = MMC_DRV_OP_GET_EXT_CSD;
+	req_to_mmc_queue_req(req)->drv_op_data = &ext_csd;
+	blk_execute_rq(mq->queue, NULL, req, 0);
+	err = req_to_mmc_queue_req(req)->drv_op_result;
+	blk_put_request(req);
+	if (err) {
+		pr_err("FAILED %d\n", err);
+		goto out_free;
+	}
+
+	sector_count = (ext_csd[215]<<24) |(ext_csd[214]<<16)|
+			(ext_csd[213]<<8)|(ext_csd[212]);
+	n = sprintf(buf, "0x%08x\n", sector_count);
+    
+	if (n > SECTOR_COUNT_BUF_LEN) {
+		err = -EINVAL;
+		kfree(ext_csd);
+		goto out_free;
+	}
+
+	filp->private_data = buf;
+
+	kfree(ext_csd);
+	return 0;
+
+out_free:
+	kfree(buf);
+	return err;
+}
+
+static ssize_t mmc_sector_count_read(struct file *filp, char __user *ubuf,
+	size_t cnt, loff_t *ppos)
+{
+	char *buf = filp->private_data;
+	int len = strlen(buf);
+	return simple_read_from_buffer(ubuf, cnt, ppos,
+		buf, len);
+}
+
+static int mmc_sector_count_release(struct inode *inode, struct file *file)
+{
+	kfree(file->private_data);
+	return 0;
+}
+
+static const struct file_operations mmc_dbg_sector_count_fops = {
+	.open		= mmc_sector_count_open,
+	.read		= mmc_sector_count_read,
+	.release	= mmc_sector_count_release,
+	.llseek		= default_llseek,
+};
+
+#define LIFE_TIME_BUF_LEN 256
+static char* life_time_table[]={
+	"Not defined",
+	"0%-10% device life time used",
+	"10%-20% device life time used",
+	"20%-30% device life time used",
+	"30%-40% device life time used",
+	"30%-40% device life time used",
+	"40%-50% device life time used",
+	"60%-70% device life time used",
+	"80%-90% device life time used",
+	"90%-100% device life time used",
+	"Exceeded its maximum estimated device life time",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+};
+
+static int mmc_life_time_open(struct inode *inode, struct file *filp)
+{
+	struct mmc_card *card = inode->i_private;
+	struct mmc_blk_data *md = dev_get_drvdata(&card->dev);
+	struct mmc_queue *mq = &md->queue;
+	struct request *req;
+	char *buf;
+	ssize_t n = 0;
+	u8 *ext_csd;
+	int err;
+	unsigned char life_time_A = 0;
+	unsigned char life_time_B = 0;
+    
+	buf = kmalloc(LIFE_TIME_BUF_LEN + 1, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	/* Ask the block layer for the EXT CSD */
+	req = blk_get_request(mq->queue, REQ_OP_DRV_IN, __GFP_RECLAIM);
+	if (IS_ERR(req)) {
+		err = PTR_ERR(req);
+		goto out_free;
+	}
+	req_to_mmc_queue_req(req)->drv_op = MMC_DRV_OP_GET_EXT_CSD;
+	req_to_mmc_queue_req(req)->drv_op_data = &ext_csd;
+	blk_execute_rq(mq->queue, NULL, req, 0);
+	err = req_to_mmc_queue_req(req)->drv_op_result;
+	blk_put_request(req);
+	if (err) {
+		pr_err("FAILED %d\n", err);
+		goto out_free;
+	}
+
+	life_time_A = ext_csd[268];
+	life_time_B = ext_csd[269];
+	n = sprintf(buf, "type A:%s\n\rtype B:%s\n\r",
+		life_time_table[life_time_A],life_time_table[life_time_B]);
+
+	if (n > LIFE_TIME_BUF_LEN) {
+		err = -EINVAL;
+		kfree(ext_csd);
+		goto out_free;
+	}
+
+	filp->private_data = buf;
+
+	kfree(ext_csd);
+	return 0;
+
+out_free:
+	kfree(buf);
+	return err;
+}
+
+static ssize_t mmc_life_time_read(struct file *filp, char __user *ubuf,
+	size_t cnt, loff_t *ppos)
+{
+	char *buf = filp->private_data;
+	int len = strlen(buf);
+
+	return simple_read_from_buffer(ubuf, cnt, ppos,
+		buf, len);
+}
+
+static int mmc_life_time_release(struct inode *inode, struct file *file)
+{
+	kfree(file->private_data);
+	return 0;
+}
+
+static const struct file_operations mmc_dbg_life_time_fops = {
+	.open		= mmc_life_time_open,
+	.read		= mmc_life_time_read,
+	.release	= mmc_life_time_release,
+	.llseek		= default_llseek,
+};
+#endif
+
 static int mmc_blk_add_debugfs(struct mmc_card *card, struct mmc_blk_data *md)
 {
 	struct dentry *root;
@@ -2915,7 +3165,24 @@ static int mmc_blk_add_debugfs(struct mmc_card *card, struct mmc_blk_data *md)
 		if (!md->ext_csd_dentry)
 			return -EIO;
 	}
+#ifdef VENDOR_EDIT
+//runyu.ouyang@BSP.Storage.EMMC, 2019-06-22 add for emmc lifetime
+	if (mmc_card_mmc(card)) {
+		md->sector_count_dentry =
+			debugfs_create_file("sector_count", S_IRUSR, root, card,
+					    &mmc_dbg_sector_count_fops);
+		if (!md->sector_count_dentry)
+			return -EIO;
+	}
 
+	if (mmc_card_mmc(card)) {
+		md->life_time_dentry =
+			debugfs_create_file("life_time",(S_IRUSR|S_IRGRP|S_IROTH), root, card,
+					    &mmc_dbg_life_time_fops);
+		if (!md->life_time_dentry)
+			return -EIO;
+	}
+#endif
 	return 0;
 }
 
@@ -2954,12 +3221,53 @@ static int mmc_blk_probe(struct mmc_card *card)
 {
 	struct mmc_blk_data *md, *part_md;
 	char cap_str[10];
+	#ifdef VENDOR_EDIT
+	//xiaohua.tian@Prd6.BaseDrv.Sensor,2016/10/31, Add for eMMC and DDR device information
+	char * manufacturerid;
+    static char temp_version[30] = {0};
+	#endif /* VENDOR_EDIT */
 
 	/*
 	 * Check that the card supports the command class(es) we need.
 	 */
+#ifndef VENDOR_EDIT
+//yh@bsp, 2015/08/03, remove for can not initialize specific sdcard(CSD info mismatch card real capability)
 	if (!(card->csd.cmdclass & CCC_BLOCK_READ))
 		return -ENODEV;
+#endif
+#ifdef VENDOR_EDIT
+//xiaohua.tian@Prd6.BaseDrv.Sensor,2016/10/31, Add for eMMC and DDR device information
+	switch (card->cid.manfid) {
+		case  0x11:
+			manufacturerid = "TOSHIBA";
+			break;
+		case  0x15:
+			manufacturerid = "SAMSUNG";
+			break;
+		case  0x45:
+			manufacturerid = "SANDISK";
+			break;
+		case  0x90:
+			manufacturerid = "HYNIX";
+			break;
+		case 0xFE:
+            manufacturerid = "ELPIDA";
+            break;
+		case 0x13:
+            manufacturerid = "MICRON";
+            break;
+        default:
+			printk("mmc_blk_probe unknown card->cid.manfid is %x\n",card->cid.manfid);
+			manufacturerid = "unknown";
+			break;
+	}
+
+	if ((!strcmp(mmc_card_id(card), "mmc0:0001"))&&(!mmc_card_is_removable(card->host))) {
+		sprintf(temp_version,"0x%02x,0x%llx",card->cid.prv,*(unsigned long long*)card->ext_csd.fwrev);
+		register_device_proc("emmc", mmc_card_name(card), manufacturerid);
+		register_device_proc("emmc_version", mmc_card_name(card), temp_version);
+	}
+#endif
 
 	mmc_fixup_device(card, mmc_blk_fixups);
 
@@ -3017,6 +3325,18 @@ static int mmc_blk_probe(struct mmc_card *card)
 	return 0;
 }
 
+#ifdef VENDOR_EDIT
+//Chunyi.Mei@PSW.BSP.Storage.Sdcard, 2018-12-10, Add for SD Card device information
+char *capacity_string(struct mmc_card *card){
+	static char cap_str[10] = "unknown";
+	struct mmc_blk_data *md = (struct mmc_blk_data *)card->dev.driver_data;
+	if(md==NULL){
+		return 0;
+	}
+	string_get_size((u64)get_capacity(md->disk), 512, STRING_UNITS_2, cap_str, sizeof(cap_str));
+	return cap_str;
+}
+#endif
 static void mmc_blk_remove(struct mmc_card *card)
 {
 	struct mmc_blk_data *md = dev_get_drvdata(&card->dev);
