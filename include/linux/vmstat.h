@@ -382,6 +382,13 @@ static inline void __mod_zone_freepage_state(struct zone *zone, int nr_pages,
 	__mod_zone_page_state(zone, NR_FREE_PAGES, nr_pages);
 	if (is_migrate_cma(migratetype))
 		__mod_zone_page_state(zone, NR_FREE_CMA_PAGES, nr_pages);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_MEMORY_ISOLATE)
+/* Huacai.Zhou@PSW.BSP.Kernel.MM, 2018-3-15
+ * Account free pages for MIGRATE_OPPOx
+ */
+	if (migratetype == MIGRATE_OPPO2)
+		__mod_zone_page_state(zone, NR_FREE_OPPO2_PAGES, nr_pages);
+#endif /* VENDOR_EDIT */
 }
 
 extern const char * const vmstat_text[];

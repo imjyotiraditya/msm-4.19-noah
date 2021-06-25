@@ -327,6 +327,11 @@ enum req_flag_bits {
 	__REQ_INTEGRITY,	/* I/O includes block integrity payload */
 	__REQ_FUA,		/* forced unit access */
 	__REQ_PREFLUSH,		/* request for cache flush */
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_FG_IO_OPT)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-23,add foreground io opt*/
+	__REQ_UX,
+	__REQ_FG,		/* foreground activity */
+#endif /*VENDOR_EDIT*/
 	__REQ_RAHEAD,		/* read ahead, can fail anytime */
 	__REQ_BACKGROUND,	/* background IO */
 	__REQ_NOWAIT,           /* Don't wait if request will block */
@@ -359,6 +364,11 @@ enum req_flag_bits {
 #define REQ_INTEGRITY		(1ULL << __REQ_INTEGRITY)
 #define REQ_FUA			(1ULL << __REQ_FUA)
 #define REQ_PREFLUSH		(1ULL << __REQ_PREFLUSH)
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_FG_IO_OPT)
+/*Huacai.Zhou@Tech.Kernel.MM, 2020-03-23,add foreground io opt*/
+#define REQ_UX			(1ULL << __REQ_UX)
+#define REQ_FG			(1ULL << __REQ_FG)
+#endif /*VENDOR_EDIT*/
 #define REQ_RAHEAD		(1ULL << __REQ_RAHEAD)
 #define REQ_BACKGROUND		(1ULL << __REQ_BACKGROUND)
 #define REQ_NOWAIT		(1ULL << __REQ_NOWAIT)
@@ -473,5 +483,17 @@ struct blk_rq_stat {
 	u32 nr_samples;
 	u64 batch;
 };
+
+/* geshifei@TECH.Storage.IOMonitor, add for record io history, 2020/03/11 */
+#if defined(VENDOR_EDIT)
+#define IO_HISTORY_DEPTH 32
+struct io_history {
+	unsigned int cmd_flags;
+	unsigned long jiffies;
+};
+
+extern struct io_history io_queue_history[IO_HISTORY_DEPTH];
+extern unsigned char io_queue_index;
+#endif
 
 #endif /* __LINUX_BLK_TYPES_H */
