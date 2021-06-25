@@ -87,6 +87,11 @@ struct msm_rpm_master_stats_private_data {
 	struct msm_rpm_master_stats_platform_data *platform_data;
 };
 
+#ifdef VENDOR_EDIT
+//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for /d/spm/oppo_rphm_master_stats for compatible OppoPowerMonitor
+static struct dentry *debug_spm;
+#endif
+
 static int msm_rpm_master_stats_file_close(struct inode *inode,
 		struct file *file)
 {
@@ -272,6 +277,70 @@ static int msm_rpm_master_copy_stats(
 	master_cnt++;
 	return RPM_MASTERS_BUF_LEN - count;
 }
+#ifdef VENDOR_EDIT
+//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for oppo_rpmh_master_stats
+#define MSM_ARCH_TIMER_FREQ 19200000
+static inline u64 get_time_in_msec(u64 counter)
+{
+	do_div(counter, MSM_ARCH_TIMER_FREQ);
+	counter *= MSEC_PER_SEC;
+	return counter;
+}
+#endif /* VENDOR_EDIT */
+#ifdef VENDOR_EDIT
+//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for oppo_rpmh_master_stats
+static int oppo_rpm_master_copy_stats(
+		struct msm_rpm_master_stats_private_data *prvdata)
+{
+	struct msm_rpm_master_stats record;
+	struct msm_rpm_master_stats_platform_data *pdata;
+	static int master_cnt;
+	int count;
+	char *buf;
+
+	/* Iterate possible number of masters */
+	if (master_cnt > prvdata->num_masters - 1) {
+		master_cnt = 0;
+		return 0;
+	}
+
+	pdata = prvdata->platform_data;
+	count = RPM_MASTERS_BUF_LEN;
+	buf = prvdata->buf;
+
+	if (prvdata->platform_data->version == 2) {
+		SNPRINTF(buf, count, "%s:",
+				GET_MASTER_NAME(master_cnt, prvdata));
+		
+		record.xo_count =
+				readl_relaxed(prvdata->reg_base +
+				(master_cnt * pdata->master_offset +
+				offsetof(struct msm_rpm_master_stats,
+				xo_count)));
+
+		SNPRINTF(buf, count, "%x", record.xo_count);
+
+		record.xo_accumulated_duration =
+				readq_relaxed(prvdata->reg_base +
+				(master_cnt * pdata->master_offset +
+				offsetof(struct msm_rpm_master_stats,
+				xo_accumulated_duration)));
+
+		SNPRINTF(buf, count, ":%llX\n", get_time_in_msec(record.xo_accumulated_duration));
+	} else {
+		SNPRINTF(buf, count, "%s_shutdown:",
+				GET_MASTER_NAME(master_cnt, prvdata));
+
+		record.numshutdowns = readl_relaxed(prvdata->reg_base +
+				(master_cnt * pdata->master_offset) + 0x0);
+
+		SNPRINTF(buf, count, "%x\n",record.numshutdowns);
+	}
+
+	master_cnt++;
+	return RPM_MASTERS_BUF_LEN - count;
+}
+#endif /* VENDOR_EDIT */
 
 static ssize_t msm_rpm_master_stats_file_read(struct file *file,
 				char __user *bufu, size_t count, loff_t *ppos)
@@ -309,6 +378,45 @@ exit:
 	mutex_unlock(&msm_rpm_master_stats_mutex);
 	return ret;
 }
+#ifdef VENDOR_EDIT
+//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for oppo_rpmh_master_stats
+static ssize_t oppo_rpm_master_stats_file_read(struct file *file,
+				char __user *bufu, size_t count, loff_t *ppos)
+{
+	struct msm_rpm_master_stats_private_data *prvdata;
+	struct msm_rpm_master_stats_platform_data *pdata;
+	ssize_t ret;
+
+	mutex_lock(&msm_rpm_master_stats_mutex);
+	prvdata = file->private_data;
+	if (!prvdata) {
+		ret = -EINVAL;
+		goto exit;
+	}
+
+	pdata = prvdata->platform_data;
+	if (!pdata) {
+		ret = -EINVAL;
+		goto exit;
+	}
+
+	if (!bufu || count == 0) {
+		ret = -EINVAL;
+		goto exit;
+	}
+
+	if (*ppos <= pdata->phys_size) {
+		prvdata->len = oppo_rpm_master_copy_stats(prvdata);
+		*ppos = 0;
+	}
+
+	ret = simple_read_from_buffer(bufu, count, ppos,
+			prvdata->buf, prvdata->len);
+exit:
+	mutex_unlock(&msm_rpm_master_stats_mutex);
+	return ret;
+}
+#endif /* VENDOR_EDIT */
 
 static int msm_rpm_master_stats_file_open(struct inode *inode,
 		struct file *file)
@@ -359,6 +467,16 @@ static const struct file_operations msm_rpm_master_stats_fops = {
 	.release  = msm_rpm_master_stats_file_close,
 	.llseek   = no_llseek,
 };
+#ifdef VENDOR_EDIT
+//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for oppo_rpmh_master_stats
+static const struct file_operations oppo_rpm_master_stats_fops = {
+	.owner	  = THIS_MODULE,
+	.open	  = msm_rpm_master_stats_file_open,
+	.read	  = oppo_rpm_master_stats_file_read,
+	.release  = msm_rpm_master_stats_file_close,
+	.llseek   = no_llseek,
+};
+#endif /* VENDOR_EDIT */
 
 static struct msm_rpm_master_stats_platform_data
 			*msm_rpm_master_populate_pdata(struct device *dev)
@@ -417,11 +535,87 @@ err:
 	return NULL;
 }
 
+#ifdef VENDOR_EDIT
+//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for oppo_rpmh_master_stats
+struct oppo_rpmh_master_stats_prv_data {
+    struct kobj_attribute oppoka;
+	struct kobject *oppokobj;
+
+};
+
+struct msm_rpm_master_stats_platform_data *oppo_pdata = NULL;
+
+static ssize_t oppo_rpmh_master_stats_show(struct kobject *kobj,
+				struct kobj_attribute *attr, char *buf)
+{
+	ssize_t length = 0;
+	struct msm_rpm_master_stats_private_data *prvdata;
+	struct msm_rpm_master_stats_platform_data *pdata;
+	ssize_t ret;
+    int i = 0;
+
+	mutex_lock(&msm_rpm_master_stats_mutex);
+        prvdata =
+		kzalloc(sizeof(struct msm_rpm_master_stats_private_data),
+			GFP_KERNEL);
+	if (!prvdata) {
+		ret = -ENOMEM;
+		goto exit;
+	}
+	if (oppo_pdata == NULL) {
+		ret = -ENOMEM;
+		goto exit_oppo_pdata;
+	}
+
+        pdata = oppo_pdata;
+	prvdata->reg_base = ioremap(pdata->phys_addr_base,
+						pdata->phys_size);
+	if (!prvdata->reg_base) {
+		kfree(prvdata);
+		prvdata = NULL;
+		pr_err("%s: ERROR could not ioremap start=%pa, len=%u\n",
+			__func__, &pdata->phys_addr_base,
+			pdata->phys_size);
+		ret = -EBUSY;
+		goto exit;
+	}
+
+	prvdata->len = 0;
+	prvdata->num_masters = pdata->num_masters;
+	prvdata->master_names = pdata->masters;
+	prvdata->platform_data = pdata;
+        for(i= 0; i<= prvdata->num_masters; i++) {
+    		prvdata->len = oppo_rpm_master_copy_stats(prvdata);
+		length += snprintf(buf + length,prvdata->len +1, "%s", prvdata->buf);
+	}
+
+	if (prvdata->reg_base)
+		iounmap(prvdata->reg_base);
+	kfree(prvdata);
+	prvdata = NULL;
+	mutex_unlock(&msm_rpm_master_stats_mutex);
+	return length;
+exit_oppo_pdata:
+	kfree(prvdata);
+exit:
+	prvdata = NULL;
+	mutex_unlock(&msm_rpm_master_stats_mutex);
+	return length;
+}
+#endif /*VENDOR_EDIT*/
+
 static  int msm_rpm_master_stats_probe(struct platform_device *pdev)
 {
 	struct dentry *dent;
 	struct msm_rpm_master_stats_platform_data *pdata;
 	struct resource *res = NULL;
+
+    #ifdef VENDOR_EDIT
+	//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for oppo_rpmh_master_stats
+	struct oppo_rpmh_master_stats_prv_data *prvdata = NULL;
+	struct kobject *rpmh_master_stats_kobj = NULL;
+	int ret = -ENOMEM;
+    #endif /* VENDOR_EDIT */
 
 	if (!pdev)
 		return -EINVAL;
@@ -448,6 +642,34 @@ static  int msm_rpm_master_stats_probe(struct platform_device *pdev)
 	pdata->phys_addr_base = res->start;
 	pdata->phys_size = resource_size(res);
 
+	#ifdef VENDOR_EDIT
+	//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for oppo_rpmh_master_stats
+	oppo_pdata = pdata;
+	prvdata = devm_kzalloc(&pdev->dev, sizeof(*prvdata), GFP_KERNEL);
+	if (!prvdata)
+		return ret;
+
+	rpmh_master_stats_kobj = kobject_create_and_add(
+					"rpmh_stats",
+					power_kobj);
+	if (!rpmh_master_stats_kobj)
+		return ret;
+
+	prvdata->oppokobj = rpmh_master_stats_kobj;
+
+	sysfs_attr_init(&prvdata->oppoka.attr);
+	prvdata->oppoka.attr.mode = 0444;
+	prvdata->oppoka.attr.name = "oppo_rpmh_master_stats";
+	prvdata->oppoka.show = oppo_rpmh_master_stats_show;
+	prvdata->oppoka.store = NULL;
+
+	ret = sysfs_create_file(prvdata->oppokobj, &prvdata->oppoka.attr);
+	if (ret) {
+		pr_err("sysfs_create_file oppo failed\n");
+		goto fail_sysfs_oppo;
+	}
+        #endif /*VENDOR_EDIT*/
+
 	dent = debugfs_create_file("rpm_master_stats", 0444, NULL,
 					pdata, &msm_rpm_master_stats_fops);
 
@@ -456,17 +678,50 @@ static  int msm_rpm_master_stats_probe(struct platform_device *pdev)
 								__func__);
 		return -ENOMEM;
 	}
+	#ifdef VENDOR_EDIT
+	//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for oppo_rpmh_master_stats
+	debug_spm = debugfs_create_dir("spm", NULL);
+	dent = debugfs_create_file("oppo_rpmh_master_stats", 0444, debug_spm,
+					pdata, &oppo_rpm_master_stats_fops);
 
+	if (!dent) {
+		dev_err(&pdev->dev, "%s: oppo_rpmh_master_stats debugfs_create_file failed\n",
+								__func__);
+		return -ENOMEM;
+	}
+	#endif /* VENDOR_EDIT */
 	platform_set_drvdata(pdev, dent);
 	return 0;
+
+#ifdef VENDOR_EDIT
+//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for oppo_rpmh_master_stats
+fail_sysfs_oppo:
+	kobject_put(prvdata->oppokobj);
+	return ret;
+#endif  /* VENDOR_EDIT */
+
 }
 
 static int msm_rpm_master_stats_remove(struct platform_device *pdev)
 {
 	struct dentry *dent;
-
+	#ifdef VENDOR_EDIT
+	//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for oppo_rpmh_master_stats
+	struct oppo_rpmh_master_stats_prv_data *prvdata;
+	#endif /*VENDOR_EDIT*/
 	dent = platform_get_drvdata(pdev);
+	#ifdef VENDOR_EDIT
+	//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for oppo_rpmh_master_stats
+	prvdata = (struct oppo_rpmh_master_stats_prv_data *)
+				platform_get_drvdata(pdev);
+	#endif /*VENDOR_EDIT*/
 	debugfs_remove(dent);
+	#ifdef VENDOR_EDIT
+	//ChaoYing.Chen@BSP.Power.Basic, 2020/06/19,add for oppo_rpmh_master_stats
+        sysfs_remove_file(prvdata->oppokobj, &prvdata->oppoka.attr);
+	kobject_put(prvdata->oppokobj);
+	oppo_pdata = NULL;
+	#endif /*VENDOR_EDIT*/
 	platform_set_drvdata(pdev, NULL);
 	return 0;
 }

@@ -11,6 +11,10 @@
 #include <linux/platform_device.h>
 #include <linux/mailbox_controller.h>
 #include <dt-bindings/soc/qcom,ipcc.h>
+#ifdef VENDOR_EDIT
+//Nanwei.Deng@BSP.Power.Basic 2018/06/14 add formodem irq,case03529649
+#include <linux/string.h>
+#endif /*VENDOR_EDIT*/
 
 /* IPCC Register offsets */
 #define IPCC_REG_SEND_ID		0x0C
@@ -25,6 +29,41 @@
 #define IPCC_CLIENT_ID_SHIFT		16
 
 #define IPCC_NO_PENDING_IRQ		(~(u32)0)
+
+#ifdef VENDOR_EDIT
+//Yuanfei.Liu@PSW.NW.DATA.2579544, 2019/11/20
+//Add for: ipcc_x print
+extern atomic_t ipcc_first_msg;
+#endif
+
+#ifdef VENDOR_EDIT
+//#ifdef FEATURE_DATA_NWPOWER
+//Asiga@PSW.NW.DATA.2120730, 2019/06/26.
+//add modem for pcie debug msg
+extern u64 nw_wifi_wakeup_times;
+extern u64 nw_adsp_wakeup_times;
+extern u64 nw_cdsp_wakeup_times;
+extern u64 nw_slpi_wakeup_times;
+//#endif /* FEATURE_DATA_NWPOWER */
+#endif /* VENDOR_EDIT */
+
+#ifdef VENDOR_EDIT
+//Nanwei.Deng@BSP.Power.Basic 2018/06/14 add formodem irq, ,case03529649
+static char WLAN_DATA_IRQ_NAME_IPCC[]=				"WLAN";					//eg:WLAN_CE_0 ~WLAN_CE_11
+static char GLINK_NATIVE_ADSP_IRQ_NAME_IPCC[]=		"glink-native-adsp";	//eg:glink-native-adsp
+static char GLINK_NATIVE_CDSP_IRQ_NAME_IPCC[]=		"glink-native-cdsp";	//eg:glink-native-cdsp
+static char GLINK_NATIVE_SLPI_IRQ_NAME_IPCC[]=		"glink-native-slpi";	//eg:glink-native-slpi
+static char ADSP_IRQ_NAME_IPCC[]=					"adsp";					//eg:adsp
+static char CDSP_IRQ_NAME_IPCC[]=					"cdsp";					//eg:cdsp
+static char SLPI_IRQ_NAME_IPCC[]=					"spli";					//eg:spli
+
+extern u64 wakeup_source_count_modem;
+extern u64 wakeup_source_count_adsp;
+extern u64 wakeup_source_count_cdsp;
+extern u64 wakeup_source_count_slpi;
+extern u64 wakeup_source_count_wifi ;
+extern u64 wakeup_source_count_glink ;
+#endif /*VENDOR_EDIT*/
 
 /**
  * struct ipcc_protocol_data - Per-protocol data
@@ -334,6 +373,59 @@ static void msm_ipcc_resume(void)
 		name = desc->action->name;
 
 	pr_warn("%s: %d triggered %s\n", __func__, virq, name);
+	
+#ifdef VENDOR_EDIT
+//Nanwei.Deng@BSP.Power.Basic, 2018/04/28, add for analysis power coumption.
+	wakeup_source_count_glink++;
+
+	if(strncmp(name, WLAN_DATA_IRQ_NAME_IPCC, sizeof(WLAN_DATA_IRQ_NAME_IPCC)-1) == 0)
+	{
+		wakeup_source_count_wifi++;
+		#ifdef VENDOR_EDIT
+		//#ifdef FEATURE_DATA_NWPOWER
+		//Asiga@PSW.NW.DATA.2120730, 2019/06/26.
+		//add modem for pcie debug msg
+		nw_wifi_wakeup_times++;
+		//#endif /* FEATURE_DATA_NWPOWER */
+		#endif /* VENDOR_EDIT */
+	}
+	else if((strncmp(name, ADSP_IRQ_NAME_IPCC, sizeof(ADSP_IRQ_NAME_IPCC)-1) == 0)
+		 || (strncmp(name, GLINK_NATIVE_ADSP_IRQ_NAME_IPCC, sizeof(GLINK_NATIVE_ADSP_IRQ_NAME_IPCC)-1) == 0))
+	{
+		wakeup_source_count_adsp++;
+		#ifdef VENDOR_EDIT
+		//#ifdef FEATURE_DATA_NWPOWER
+		//Asiga@PSW.NW.DATA.2120730, 2019/06/26.
+		//add modem for pcie debug msg
+		nw_adsp_wakeup_times++;
+		//#endif /* FEATURE_DATA_NWPOWER */
+		#endif /* VENDOR_EDIT */
+	}
+	else if((strncmp(name, CDSP_IRQ_NAME_IPCC, sizeof(CDSP_IRQ_NAME_IPCC)-1) == 0)	
+		 || (strncmp(name, GLINK_NATIVE_CDSP_IRQ_NAME_IPCC, sizeof(GLINK_NATIVE_CDSP_IRQ_NAME_IPCC)-1) == 0))
+	{
+		wakeup_source_count_cdsp++;
+		#ifdef VENDOR_EDIT
+		//#ifdef FEATURE_DATA_NWPOWER
+		//Asiga@PSW.NW.DATA.2120730, 2019/06/26.
+		//add modem for pcie debug msg
+		nw_cdsp_wakeup_times++;
+		//#endif /* FEATURE_DATA_NWPOWER */
+		#endif /* VENDOR_EDIT */
+	}
+	else if((strncmp(name, SLPI_IRQ_NAME_IPCC, sizeof(SLPI_IRQ_NAME_IPCC)-1) == 0)	
+		 || (strncmp(name, GLINK_NATIVE_SLPI_IRQ_NAME_IPCC, sizeof(GLINK_NATIVE_SLPI_IRQ_NAME_IPCC)-1) == 0))
+	{
+		wakeup_source_count_slpi++;
+		#ifdef VENDOR_EDIT
+		//#ifdef FEATURE_DATA_NWPOWER
+		//Asiga@PSW.NW.DATA.2120730, 2019/06/26.
+		//add modem for pcie debug msg
+		nw_slpi_wakeup_times++;
+		//#endif /* FEATURE_DATA_NWPOWER */
+		#endif /* VENDOR_EDIT */
+	}
+#endif  /* VENDOR_EDIT */
 }
 #else
 #define msm_ipcc_suspend NULL

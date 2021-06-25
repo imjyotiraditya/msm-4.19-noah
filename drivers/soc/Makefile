@@ -25,3 +25,7 @@ obj-$(CONFIG_ARCH_U8500)	+= ux500/
 obj-$(CONFIG_PLAT_VERSATILE)	+= versatile/
 obj-y				+= xilinx/
 obj-$(CONFIG_ARCH_ZX)		+= zte/
+#ifdef VENDOR_EDIT
+#/*ChaoYing.Chen@BSP.Kernel.Driver, 2020/04/22, Add for port oppo driver */
+obj-y				+= oppo/
+#endif
