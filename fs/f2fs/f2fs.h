@@ -25,6 +25,11 @@
 #include <crypto/hash.h>
 
 #include <linux/fscrypt.h>
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+#define FS_GC_OPT 0
+#define FS_DISCARD_OPT 1
+extern void add_fs_type_count(int type);
+#endif
 
 #ifdef CONFIG_F2FS_CHECK_FS
 #define f2fs_bug_on(sbi, condition)	BUG_ON(condition)
@@ -2841,7 +2846,12 @@ static inline void f2fs_update_iostat(struct f2fs_sb_info *sbi,
 		return;
 	spin_lock(&sbi->iostat_lock);
 	sbi->write_iostat[type] += io_bytes;
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+	if ( type == FS_GC_DATA_IO || type == FS_GC_NODE_IO )
+		add_fs_type_count(FS_GC_OPT);
+	if ( type == FS_DISCARD )
+		add_fs_type_count(FS_DISCARD_OPT);
+#endif
 	if (type == APP_WRITE_IO || type == APP_DIRECT_IO)
 		sbi->write_iostat[APP_BUFFERED_IO] =
 			sbi->write_iostat[APP_WRITE_IO] -

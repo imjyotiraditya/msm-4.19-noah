@@ -29,6 +29,10 @@
 #include <linux/device.h>
 #include <linux/memcontrol.h>
 #include "internal.h"
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+#include <soc/oppo/oppo_iomonitor.h>
+#endif
 
 /*
  * 4MB minimal write chunk size
@@ -2008,7 +2012,10 @@ void wb_workfn(struct work_struct *work)
 						    WB_REASON_FORKER_THREAD);
 		trace_writeback_pages_written(pages_written);
 	}
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+	/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+	atomic64_add(pages_written, &fs_status.dirty_page);
+#endif
 	if (!list_empty(&wb->work_list))
 		wb_wakeup(wb);
 	else if (wb_has_dirty_io(wb) && dirty_writeback_interval)

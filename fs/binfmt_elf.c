@@ -1766,7 +1766,7 @@ static int fill_thread_core_info(struct elf_thread_core_info *t,
 		    (!regset->active || regset->active(t->task, regset) > 0)) {
 			int ret;
 			size_t size = regset_size(t->task, regset);
-			void *data = kmalloc(size, GFP_KERNEL);
+			void *data = kzalloc(size, GFP_KERNEL);
 			if (unlikely(!data))
 				return 0;
 			ret = regset->get(t->task, regset,
@@ -2214,6 +2214,13 @@ static void fill_extnum_info(struct elfhdr *elf, struct elf_shdr *shdr4extnum,
 	shdr4extnum->sh_info = segs;
 }
 
+
+#ifdef VENDOR_EDIT
+// Bin.Xu@BSP.Kernel.Stability, 2020/4/1, transplant checklist: pre-allocation 64KB memory for coredump 
+static elf_addr_t *oppo_coredump_addr = NULL;
+#define PREALLOC_DUMPMEM_SIZE 64 * 1024
+#endif /* VENDOR_EDIT */
+
 /*
  * Actual dumper
  *
@@ -2305,8 +2312,22 @@ static int elf_core_dump(struct coredump_params *cprm)
 
 	if (segs - 1 > ULONG_MAX / sizeof(*vma_filesz))
 		goto end_coredump;
+
+#ifdef VENDOR_EDIT
+// Bin.Xu@BSP.Kernel.Stability, 2020/4/1, transplant checklist: pre-allocation 64KB memory for coredump
+	if (oppo_coredump_addr && (segs - 1) * sizeof(*vma_filesz) <= PREALLOC_DUMPMEM_SIZE)
+		vma_filesz = oppo_coredump_addr;
+	else {
+		kvfree(oppo_coredump_addr);
+		oppo_coredump_addr = NULL;
+		vma_filesz = kvmalloc(array_size(sizeof(*vma_filesz), (segs - 1)),
+			      GFP_KERNEL);
+	}
+#else
 	vma_filesz = kvmalloc(array_size(sizeof(*vma_filesz), (segs - 1)),
 			      GFP_KERNEL);
+#endif /* VENDOR_EDIT */
+
 	if (ZERO_OR_NULL_PTR(vma_filesz))
 		goto end_coredump;
 
@@ -2415,6 +2436,13 @@ cleanup:
 	free_note_info(&info);
 	kfree(shdr4extnum);
 	kvfree(vma_filesz);
+
+#ifdef VENDOR_EDIT
+// Bin.Xu@BSP.Kernel.Stability, 2020/4/1, transplant checklist: pre-allocation 64KB memory for coredump
+	if (vma_filesz == oppo_coredump_addr)
+		oppo_coredump_addr = NULL;
+#endif /* VENDOR_EDIT */
+
 	kfree(phdr4note);
 	kfree(elf);
 out:
@@ -2426,11 +2454,21 @@ out:
 static int __init init_elf_binfmt(void)
 {
 	register_binfmt(&elf_format);
+#ifdef VENDOR_EDIT
+// Bin.Xu@BSP.Kernel.Stability, 2020/4/1, transplant checklist: pre-allocation 64KB memory for coredump
+	oppo_coredump_addr = kvmalloc(PREALLOC_DUMPMEM_SIZE, GFP_KERNEL);
+#endif /* VENDOR_EDIT */
 	return 0;
 }
 
 static void __exit exit_elf_binfmt(void)
 {
+#ifdef VENDOR_EDIT
+// Bin.Xu@BSP.Kernel.Stability, 2020/4/1, transplant checklist: pre-allocation 64KB memory for coredump
+	if (oppo_coredump_addr)
+		kvfree(oppo_coredump_addr);
+#endif /* VENDOR_EDIT */
+
 	/* Remove the COFF and ELF loaders. */
 	unregister_binfmt(&elf_format);
 }
