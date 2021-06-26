@@ -828,7 +828,7 @@
 		};
 	};
 
-	restart_pshold: restart@440b000 {
+	restart@440b000 {
 		compatible = "qcom,pshold";
 		reg = <0x440b000 0x4>,
 		      <0x03d3000 0x4>;
@@ -3168,20 +3168,3 @@
 #include "bengal-thermal.dtsi"
 #include "camera/bengal-camera.dtsi"
 #include "msm-rdbg.dtsi"
-
-&reserved_memory {
-	ramoops@64000000 {
-		compatible = "ramoops";
-		reg = <0x00 0x64000000 0x00 0x00400000>;
-		record-size = <0x00100000>;
-		console-size = <0x00100000>;
-		ftrace-size = <0x00100000>;
-		pmsg-size = <0x00100000>;
-		ecc-size = <0>;
-		status = "ok";
-	};
-};
-
-&restart_pshold {
-	qcom,force-warm-reboot;
-};
