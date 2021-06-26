@@ -5,18 +5,10 @@
 
 SECONDS=0 # builtin bash timer
 ZIPNAME="QuicksilveR-noah-$(date '+%Y%m%d-%H%M').zip"
-TC_DIR="$HOME/tc/proton-clang"
+TC_DIR="$HOME/tc"
 DEFCONFIG="vendor/bengal-perf_defconfig"
 
-export PATH="$TC_DIR/bin:$PATH"
-
-if ! [ -d "$TC_DIR" ]; then
-	echo "Proton clang not found! Cloning to $TC_DIR..."
-	if ! git clone -q --depth=1 --single-branch https://github.com/kdrag0n/proton-clang "$TC_DIR"; then
-		echo "Cloning failed! Aborting..."
-		exit 1
-	fi
-fi
+export PATH="$TC_DIR/clang-11/bin:$TC_DIR/gcc/bin:$TC_DIR/gcc_32/bin:$PATH"
 
 if [[ $1 = "-r" || $1 = "--regen" ]]; then
 	make O=out ARCH=arm64 $DEFCONFIG savedefconfig
@@ -32,7 +24,7 @@ mkdir -p out
 make O=out ARCH=arm64 $DEFCONFIG
 
 echo -e "\nStarting compilation...\n"
-make -j$(nproc --all) O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip TARGET_PRODUCT=bengal CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- Image dtbo.img dtb.img
+make -j$(nproc --all) O=out ARCH=arm64 CC=clang TARGET_PRODUCT=bengal CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- Image dtbo.img dtb.img
 
 kernel="out/arch/arm64/boot/Image"
 dtb="out/arch/arm64/boot/dtb.img"
