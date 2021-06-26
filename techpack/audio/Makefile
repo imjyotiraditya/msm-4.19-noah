@@ -14,6 +14,9 @@ endif
 ifeq ($(CONFIG_ARCH_KONA), y)
 include $(srctree)/techpack/audio/config/konaauto.conf
 endif
+ifeq ($(CONFIG_ARCH_BENGAL), y)
+include $(srctree)/techpack/audio/config/bengalauto.conf
+endif
 
 # Use USERINCLUDE when you must reference the UAPI directories only.
 USERINCLUDE     += \
@@ -42,6 +45,11 @@ ifeq ($(CONFIG_ARCH_KONA), y)
 LINUXINCLUDE    += \
                 -include $(srctree)/techpack/audio/config/konaautoconf.h
 endif
+ifeq ($(CONFIG_ARCH_BENGAL), y)
+LINUXINCLUDE    += \
+                -include $(srctree)/techpack/audio/config/bengalautoconf.h
+endif
+
 
 obj-y += soc/
 obj-y += dsp/
