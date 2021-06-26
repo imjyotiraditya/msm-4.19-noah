@@ -3170,13 +3170,13 @@
 #include "msm-rdbg.dtsi"
 
 &reserved_memory {
-	ramoops@b0000000 {
+	ramoops@64000000 {
 		compatible = "ramoops";
-		reg = <0x00 0xb0000000 0x00 0x00800000>;
-		record-size = <0x00200000>;
-		console-size = <0x00200000>;
-		ftrace-size = <0x00200000>;
-		pmsg-size = <0x00200000>;
+		reg = <0x00 0x64000000 0x00 0x00400000>;
+		record-size = <0x00100000>;
+		console-size = <0x00100000>;
+		ftrace-size = <0x00100000>;
+		pmsg-size = <0x00100000>;
 		ecc-size = <0>;
 		status = "ok";
 	};
