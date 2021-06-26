@@ -1055,11 +1055,24 @@ EXPORT_SYMBOL(mipi_dsi_dcs_set_tear_scanline);
  *
  * Return: 0 on success or a negative error code on failure.
  */
+
+#ifdef ODM_HQ_EDIT
+/* Xiaojun.Lv@MM.Lcd.Driver, 2020/05/19, Add for backlight compatiblity */
+extern char *saved_command_line;
+#endif
+
 int mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
 					u16 brightness)
 {
-	u8 payload[2] = { brightness & 0xff, brightness >> 8 };
 	ssize_t err;
+#ifdef ODM_HQ_EDIT
+/* Xiaojun.Lv@MM.Lcd.Driver, 2020/06/14, Add for backlight compatiblity */
+	u8 payload[2] = {0};
+	payload[0] = (brightness & 0xfff) >> 8;
+	payload[1] = brightness & 0xff;
+#else
+	u8 payload[2] = { brightness & 0xff, brightness >> 8 };
+#endif
 
 	err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
 				 payload, sizeof(payload));

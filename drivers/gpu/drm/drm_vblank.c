@@ -1020,7 +1020,12 @@ static int drm_vblank_get(struct drm_device *dev, unsigned int pipe)
  */
 int drm_crtc_vblank_get(struct drm_crtc *crtc)
 {
-	return drm_vblank_get(crtc->dev, drm_crtc_index(crtc));
+	if (!crtc || !crtc->dev) {
+		pr_err("[drm_crtc_vblank_get] crtc or crtc->dev is null!\n");
+		return 1;
+	} else {
+		return drm_vblank_get(crtc->dev, drm_crtc_index(crtc));
+	}
 }
 EXPORT_SYMBOL(drm_crtc_vblank_get);
 
