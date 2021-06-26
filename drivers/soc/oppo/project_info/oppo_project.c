@@ -330,7 +330,7 @@ static void dump_secure_stage(struct seq_file *s)
 	seq_printf(s, "%d", secure_oem_config);
 }
 
-static void update_manifest(struct proc_dir_entry *parent)
+static void __init update_manifest(struct proc_dir_entry *parent)
 {
 	static const char* manifest_src[2] = {
 		"/vendor/etc/vintf/manifest_ssss.xml",
